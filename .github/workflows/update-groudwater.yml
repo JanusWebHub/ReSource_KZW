@@ -1,0 +1,79 @@
+name: Update groundwater
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  send-groundwater:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Fetch groundwater value
+        id: fetch
+        env:
+          SITE_URL: https://wasserportal.berlin.de/station.php?anzeige=g&thema=gws&station=1
+        run: |
+          python - <<'PY'
+          import os, re, sys, urllib.request, html
+
+          url = os.environ["SITE_URL"]
+          try:
+              with urllib.request.urlopen(url, timeout=30) as resp:
+                  body = resp.read().decode("utf-8", errors="replace")
+          except Exception as e:
+              print(f"Failed to fetch source page: {e}")
+              sys.exit(1)
+
+          text = html.unescape(body)
+
+          # find a plausible groundwater value from the station source
+          patterns = [
+              r'(?i)(?:grundwasser(?:stand)?|GWS).*?([-+]?\d+(?:[.,]\d+)?)',
+              r'(?i)(?:reinickendorf|messstelle).*?([-+]?\d+(?:[.,]\d+)?)',
+              r'([-+]?\d+(?:[.,]\d+)?)\s*(?:m\s*(?:u\.\s*)?NN|m\.?u\.?n\.?n\.?|m\s*NN|m)',
+          ]
+
+          value = None
+          for pattern in patterns:
+              matches = re.findall(pattern, text)
+              if matches:
+                  candidate = matches[-1].replace(".", "").replace(",", ".")
+                  try:
+                      v = float(candidate)
+                      if -100 < v < 1000:
+                          value = v
+                          break
+                  except ValueError:
+                      continue
+
+          if value is None:
+              print("No valid groundwater value found in page content.")
+              sys.exit(1)
+
+          print(f"value={value}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"value={value}\n")
+          PY
+
+      - name: Send telemetry to ThingsBoard
+        env:
+          URL: ${{ vars.THINGSBOARD_URL }}
+          TOKEN: ${{ secrets.MESSSTELLE_1 }}
+          VALUE: ${{ steps.fetch.outputs.value }}
+        run: |
+          if [ -z "${URL}" ] || [ -z "${TOKEN}" ]; then
+            echo "Missing THINGSBOARD_URL or MESSSTELLE_1"
+            exit 1
+          fi
+
+          TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          curl -sS -X POST \
+            -H "Content-Type: application/json" \
+            --data "{\"station\":\"Reinickendorf\",\"groundwater_level\":${VALUE},\"timestamp\":\"${TIMESTAMP}\"}" \
+            "${URL}/api/v1/${TOKEN}/telemetry"
