@@ -19,48 +19,31 @@ jobs:
         env:
           SITE_URL: https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws&nstoffid=0&nstoffid2=0
         run: |
+          TODAY="$(date -u +%d.%m.%Y)"
+
+          curl --fail --show-error --location --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 120 \
+            -A "ReSource-KZW groundwater collector" \
+            -H "Accept: text/csv,text/plain,*/*" \
+            -e "https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws" \
+            --data-urlencode "sreihe=ew" \
+            --data-urlencode "smode=c" \
+            --data-urlencode "sdatum=01.11.1953" \
+            --data-urlencode "senddatum=${TODAY}" \
+            --data-urlencode "exportthema=gw" \
+            --output groundwater.csv \
+            "$SITE_URL"
+
           python - <<'PY'
           import os
           import sys
-          import urllib.parse
-          import urllib.request
-          from datetime import datetime, timezone
-          import time
+          from datetime import datetime
 
-          url = os.environ["SITE_URL"]
-
-          today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
-          form = urllib.parse.urlencode({
-              "sreihe": "ew",
-              "smode": "c",
-              "sdatum": "01.11.1953",
-              "senddatum": today,
-              "exportthema": "gw",
-          }).encode("ascii")
-
-          request = urllib.request.Request(
-              url,
-              data=form,
-              headers={
-                  "Content-Type": "application/x-www-form-urlencoded",
-                  "Accept": "text/csv,text/plain,*/*",
-                  "Referer": "https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws",
-                  "User-Agent": "ReSource-KZW groundwater collector",
-              },
-              method="POST",
-          )
-
-          csv_text = None
-          for attempt in range(3):
-              try:
-                  with urllib.request.urlopen(request, timeout=30) as response:
-                      csv_text = response.read().decode("utf-8", errors="replace")
-                  break  # Exit the loop if the request was successful
-              except Exception as e:
-                  print(f"Attempt {attempt + 1}: Failed to download groundwater CSV: {e}", file=sys.stderr)
-                  time.sleep(5)  # Wait before retrying
-          else:
-              print("All attempts to download groundwater CSV failed.", file=sys.stderr)
+          try:
+              with open("groundwater.csv", "r", encoding="utf-8", errors="replace") as source:
+                  csv_text = source.read()
+          except Exception as e:
+              print(f"Failed to read downloaded groundwater CSV: {e}", file=sys.stderr)
               sys.exit(1)
 
           print(f"CSV response length: {len(csv_text)} characters")
