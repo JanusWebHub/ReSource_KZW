@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Grundwasser – Messstelle 1 Reinickendorf</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color-scheme: light dark; --accent: #d94b55; --muted: #777; --panel: color-mix(in srgb, Canvas 94%, #888 6%); }
+    body { max-width: 1000px; margin: 0 auto; padding: 1.25rem; }
+    h1 { margin-bottom: .25rem; }
+    .muted, small { color: var(--muted); }
+    .panel { background: var(--panel); border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+    .controls { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+    label { display: grid; gap: .35rem; }
+    input, select, button { font: inherit; padding: .55rem .7rem; }
+    button { cursor: pointer; }
+    #status { margin-top: .75rem; }
+    .latest { font-size: clamp(2rem, 7vw, 3.5rem); font-weight: 700; }
+    #chart { width: 100%; height: 300px; display: block; overflow: visible; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: .55rem; border-bottom: 1px solid color-mix(in srgb, CanvasText 16%, transparent); text-align: left; }
+    td.value { text-align: right; font-variant-numeric: tabular-nums; }
+    .source { overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Grundwasser – Messstelle 1</h1>
+    <div class="muted">Reinickendorf, Berlin · Messwerte in m ü. NHN</div>
+  </header>
+
+  <section class="panel">
+    <h2>CSV-Messreihe laden</h2>
+    <p>Wähle einen CSV-Export der Messstelle aus. Die Seite zeigt daraus die zehn neuesten Messwerte. Die Datei wird nur in deinem Browser verarbeitet und nicht hochgeladen.</p>
+    <div class="controls">
+      <label>CSV-Datei <input id="file" type="file" accept=".csv,text/csv,text/plain"></label>
+      <label id="date-wrap" hidden>Datumsspalte <select id="date-column"></select></label>
+      <label id="value-wrap" hidden>Wertespalte <select id="value-column"></select></label>
+      <button id="show" type="button" hidden>Werte anzeigen</button>
+    </div>
+    <p id="status" role="status" aria-live="polite">Noch keine Datei geladen.</p>
+  </section>
+
+  <section id="results" hidden>
+    <section class="panel">
+      <div class="muted">Neuester Messwert</div>
+      <div class="latest"><span id="latest-value">–</span> <small>m ü. NHN</small></div>
+      <div id="latest-date" class="muted"></div>
+    </section>
+    <section class="panel">
+      <h2>Letzte zehn Messwerte</h2>
+      <svg id="chart" role="img" aria-label="Diagramm der letzten zehn Grundwasser-Messwerte"></svg>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Messdatum</th><th style="text-align:right">Grundwasserstand (m ü. NHN)</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <p class="source muted">Quelle: <a href="https://wasserportal.berlin.de/station.php?anzeige=g&amp;thema=gws&amp;station=1" target="_blank" rel="noopener">Wasserportal Berlin – Messstelle 1</a></p>
+
+  <script>
+    const fileInput = document.querySelector('#file');
+    const dateSelect = document.querySelector('#date-column');
+    const valueSelect = document.querySelector('#value-column');
+    const status = document.querySelector('#status');
+    let rows = [];
+    let headers = [];
+
+    function parseCsv(text) {
+      const firstLine = text.split(/\r?\n/, 1)[0] || '';
+      const delimiter = (firstLine.match(/;/g) || []).length >= (firstLine.match(/,/g) || []).length ? ';' : ',';
+      const output = [];
+      let row = [], cell = '', quoted = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"') {
+          if (quoted && text[i + 1] === '"') { cell += '"'; i++; }
+          else quoted = !quoted;
+        } else if (c === delimiter && !quoted) {
+          row.push(cell.trim()); cell = '';
+        } else if ((c === '\n' || c === '\r') && !quoted) {
+          if (c === '\r' && text[i + 1] === '\n') i++;
+          row.push(cell.trim());
+          if (row.some(v => v !== '')) output.push(row);
+          row = []; cell = '';
+        } else cell += c;
+      }
+      row.push(cell.trim());
+      if (row.some(v => v !== '')) output.push(row);
+      return output;
+    }
+
+    function parseDate(value) {
+      const s = String(value || '').trim().replace(/^"|"$/g, '');
+      let m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+      if (m) return new Date(+m[3], +m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0));
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function parseNumber(value) {
+      let s = String(value ?? '').trim().replace(/\s/g, '').replace(/["']/g, '');
+      if (!s || /^(?:-+|na|n\/a|null)$/i.test(s)) return null;
+      if (s.includes(',') && s.includes('.')) {
+        if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+        else s = s.replace(/,/g, '');
+      } else if (s.includes(',')) s = s.replace(',', '.');
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function chooseColumns() {
+      const data = rows.slice(1);
+      const scoreDate = i => data.slice(0, 30).filter(r => parseDate(r[i])).length;
+      const scoreValue = i => data.slice(0, 30).filter(r => parseNumber(r[i]) !== null).length;
+      const dateIdx = headers.map((_, i) => i).sort((a,b) => scoreDate(b)-scoreDate(a))[0];
+      const numeric = headers.map((_, i) => i).filter(i => i !== dateIdx).sort((a,b) => scoreValue(b)-scoreValue(a));
+      fillSelect(dateSelect, headers, dateIdx);
+      fillSelect(valueSelect, headers, numeric[0]);
+      document.querySelector('#date-wrap').hidden = false;
+      document.querySelector('#value-wrap').hidden = false;
+      document.querySelector('#show').hidden = false;
+    }
+
+    function fillSelect(select, options, selected) {
+      select.replaceChildren(...options.map((name, i) => {
+        const option = document.createElement('option'); option.value = i; option.textContent = name || `Spalte ${i + 1}`;
+        if (i === selected) option.selected = true;
+        return option;
+      }));
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        rows = parseCsv((await file.text()).replace(/^\uFEFF/, ''));
+        if (rows.length < 2) throw new Error('Die CSV enthält keine Datenzeilen.');
+        headers = rows[0].map((h, i) => h || `Spalte ${i + 1}`);
+        chooseColumns();
+        status.textContent = `${file.name} geladen (${rows.length - 1} Datenzeilen). Bitte Datum- und Wertespalte kontrollieren.`;
+      } catch (e) { status.textContent = `CSV konnte nicht gelesen werden: ${e.message}`; }
+    });
+
+    document.querySelector('#show').addEventListener('click', () => {
+      const di = Number(dateSelect.value), vi = Number(valueSelect.value);
+      const measurements = rows.slice(1).map(r => ({ date: parseDate(r[di]), value: parseNumber(r[vi]) }))
+        .filter(x => x.date && x.value !== null)
+        .sort((a,b) => a.date - b.date)
+        .slice(-10);
+      if (!measurements.length) { status.textContent = 'Keine gültigen Datum-/Wert-Paare in den ausgewählten Spalten gefunden.'; return; }
+      document.querySelector('#results').hidden = false;
+      document.querySelector('#latest-value').textContent = measurements.at(-1).value.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 3});
+      document.querySelector('#latest-date').textContent = measurements.at(-1).date.toLocaleString('de-DE');
+      document.querySelector('#rows').replaceChildren(...measurements.slice().reverse().map(m => {
+        const tr = document.createElement('tr');
+        const tdDate = document.createElement('td'); tdDate.textContent = m.date.toLocaleString('de-DE');
+        const tdValue = document.createElement('td'); tdValue.className = 'value'; tdValue.textContent = m.value.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 3});
+        tr.append(tdDate, tdValue); return tr;
+      }));
+      drawChart(measurements);
+      status.textContent = `Dargestellt werden die ${measurements.length} neuesten gültigen Messungen aus der ausgewählten CSV.`;
+    });
+
+    function drawChart(data) {
+      const svg = document.querySelector('#chart'), width = Math.max(320, svg.clientWidth || 800), height = 300;
+      const pad = { l: 56, r: 18, t: 18, b: 42 }, vals = data.map(d => d.value);
+      let min = Math.min(...vals), max = Math.max(...vals); if (min === max) { min -= 1; max += 1; }
+      const x = i => pad.l + i * (width - pad.l - pad.r) / Math.max(1, data.length - 1);
+      const y = v => pad.t + (max - v) * (height - pad.t - pad.b) / (max - min);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`); svg.replaceChildren();
+      const ns = 'http://www.w3.org/2000/svg';
+      const add = (tag, attrs, text) => { const el = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) el.setAttribute(k,v); if (text) el.textContent = text; svg.append(el); return el; };
+      for (let i=0; i<4; i++) { const v = max - i*(max-min)/3, yy=y(v); add('line',{x1:pad.l,y1:yy,x2:width-pad.r,y2:yy,stroke:'currentColor','stroke-opacity':'.18'}); add('text',{x:pad.l-8,y:yy+4,'text-anchor':'end',fill:'currentColor','font-size':'12'},v.toLocaleString('de-DE',{maximumFractionDigits:2})); }
+      const points = data.map((d,i)=>`${x(i)},${y(d.value)}`).join(' ');
+      add('polyline',{points,fill:'none',stroke:'#d94b55','stroke-width':'3','stroke-linejoin':'round','stroke-linecap':'round'});
+      data.forEach((d,i)=>{ add('circle',{cx:x(i),cy:y(d.value),r:'4',fill:'#d94b55'}); if (i===0 || i===data.length-1) add('text',{x:x(i),y:height-12,'text-anchor':i===0?'start':'end',fill:'currentColor','font-size':'11'},d.date.toLocaleDateString('de-DE')); });
+    }
+    window.addEventListener('resize', () => { if (!document.querySelector('#results').hidden) document.querySelector('#show').click(); });
+  </script>
+</body>
+</html>
