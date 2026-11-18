@@ -25,6 +25,7 @@ jobs:
           import urllib.parse
           import urllib.request
           from datetime import datetime, timezone
+          import time
 
           url = os.environ["SITE_URL"]
 
@@ -42,17 +43,29 @@ jobs:
               data=form,
               headers={
                   "Content-Type": "application/x-www-form-urlencoded",
+                  "Accept": "text/csv,text/plain,*/*",
+                  "Referer": "https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws",
                   "User-Agent": "ReSource-KZW groundwater collector",
               },
               method="POST",
           )
 
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  csv_text = response.read().decode("utf-8", errors="replace")
-          except Exception as e:
-              print(f"Failed to download groundwater CSV: {e}", file=sys.stderr)
+          csv_text = None
+          for attempt in range(3):
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      csv_text = response.read().decode("utf-8", errors="replace")
+                  break  # Exit the loop if the request was successful
+              except Exception as e:
+                  print(f"Attempt {attempt + 1}: Failed to download groundwater CSV: {e}", file=sys.stderr)
+                  time.sleep(5)  # Wait before retrying
+          else:
+              print("All attempts to download groundwater CSV failed.", file=sys.stderr)
               sys.exit(1)
+
+          print(f"CSV response length: {len(csv_text)} characters")
+          print("CSV response start:")
+          print("\n".join(csv_text.splitlines()[:18]))
 
           latest_date = None
           latest_value = None
