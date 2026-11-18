@@ -104,4 +104,7 @@ jobs:
           curl -fsS -X POST \
             -H "Content-Type: application/json" \
             --data "{\"station_id\":1,\"station\":\"Reinickendorf\",\"groundwater_level\":${VALUE},\"unit\":\"m u. NHN\",\"measured_at\":\"${MEASURED_AT}\"}" \
-            "${URL}/api/v1/${TOKEN}/telemetry"
+            "${URL}/api/v1/${TOKEN}/telemetry" \
+            -w "\nThingsBoard HTTP status: %{http_code}\n"
+
+          echo "Sent groundwater_level=${VALUE} m u. NHN from ${MEASURED_AT}"
