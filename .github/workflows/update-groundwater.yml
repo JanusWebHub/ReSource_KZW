@@ -40,8 +40,7 @@ jobs:
           python - <<'PY'
           import os
           import sys
-          import json
-          from datetime import datetime, timezone
+          from datetime import datetime
 
           try:
               with open("groundwater.csv", "r", encoding="utf-8", errors="replace") as source:
@@ -54,7 +53,8 @@ jobs:
           print("CSV response start:")
           print("\n".join(csv_text.splitlines()[:18]))
 
-          measurements = {}
+          latest_date = None
+          latest_value = None
 
           for line in csv_text.splitlines():
               columns = line.split(";")
@@ -72,85 +72,38 @@ jobs:
 
               # Only plausible groundwater elevations in m ü. NHN are accepted.
               if -100 <= measurement_value <= 1000:
-                  measurements[measurement_date] = measurement_value
+                  if latest_date is None or measurement_date > latest_date:
+                      latest_date = measurement_date
+                      latest_value = measurement_value
 
-          ordered_measurements = sorted(measurements.items())
-          if not ordered_measurements:
+          if latest_date is None:
               print("No valid groundwater measurement found in the CSV export.", file=sys.stderr)
               sys.exit(1)
 
-          latest_date, latest_value = ordered_measurements[-1]
           print(f"measurement_date={latest_date.strftime('%Y-%m-%d')}")
           print(f"value={latest_value:.2f}")
-          print(f"measurement_count={len(ordered_measurements)}")
-
-          batch_size = 500
-          with open("groundwater-batches.jsonl", "w", encoding="utf-8") as batches:
-              for start in range(0, len(ordered_measurements), batch_size):
-                  batch = []
-                  for measurement_date, measurement_value in ordered_measurements[start:start + batch_size]:
-                      timestamp = int(measurement_date.replace(tzinfo=timezone.utc).timestamp() * 1000)
-                      batch.append({
-                          "ts": timestamp,
-                          "values": {
-                              "groundwater_level": measurement_value
-                          }
-                      })
-                  batches.write(json.dumps(batch, ensure_ascii=False, separators=(",", ":")) + "\n")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"measurement_date={latest_date.strftime('%Y-%m-%d')}\n")
               output.write(f"value={latest_value:.2f}\n")
-              output.write(f"measurement_count={len(ordered_measurements)}\n")
           PY
 
       - name: Send telemetry to ThingsBoard
         env:
           URL: ${{ vars.THINGSBOARD_URL }}
           TOKEN: ${{ secrets.MESSSTELLE_1 }}
+          VALUE: ${{ steps.fetch.outputs.value }}
+          MEASURED_AT: ${{ steps.fetch.outputs.measurement_date }}
         run: |
           if [ -z "${URL}" ] || [ -z "${TOKEN}" ]; then
             echo "Missing THINGSBOARD_URL or MESSSTELLE_1"
             exit 1
           fi
 
-          python - <<'PY'
-          import os
-          import sys
-          import urllib.error
-          import urllib.request
+          curl -fsS -X POST \
+            -H "Content-Type: application/json" \
+            --data "{\"station_id\":1,\"station\":\"Reinickendorf\",\"groundwater_level\":${VALUE},\"unit\":\"m u. NHN\",\"measured_at\":\"${MEASURED_AT}\"}" \
+            "${URL}/api/v1/${TOKEN}/telemetry" \
+            -w "\nThingsBoard HTTP status: %{http_code}\n"
 
-          base_url = os.environ["URL"].rstrip("/")
-          token = os.environ["TOKEN"]
-          endpoint = f"{base_url}/api/v1/{token}/telemetry"
-
-          sent_measurements = 0
-          try:
-              with open("groundwater-batches.jsonl", "r", encoding="utf-8") as batches:
-                  for batch_number, line in enumerate(batches, start=1):
-                      payload = line.strip().encode("utf-8")
-                      if not payload:
-                          continue
-
-                      request = urllib.request.Request(
-                          endpoint,
-                          data=payload,
-                          headers={"Content-Type": "application/json"},
-                          method="POST",
-                      )
-                      try:
-                          with urllib.request.urlopen(request, timeout=120) as response:
-                              if response.status >= 300:
-                                  raise RuntimeError(f"ThingsBoard HTTP status: {response.status}")
-                      except urllib.error.HTTPError as e:
-                          print(f"ThingsBoard rejected batch {batch_number}: HTTP {e.code}", file=sys.stderr)
-                          raise
-
-                      sent_measurements += payload.count(b'{"ts":')
-                      print(f"Sent batch {batch_number}")
-          except (OSError, urllib.error.URLError, RuntimeError) as e:
-              print(f"Failed to send groundwater telemetry: {e}", file=sys.stderr)
-              sys.exit(1)
-
-          print(f"Sent {sent_measurements} groundwater measurements")
-          PY
+          echo "Sent groundwater_level=${VALUE} m u. NHN from ${MEASURED_AT}"
