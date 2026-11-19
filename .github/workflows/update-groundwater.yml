@@ -100,9 +100,10 @@ jobs:
             exit 1
           fi
 
+          TS="$(date -u +%s%3N)"
           curl -fsS -X POST \
             -H "Content-Type: application/json" \
-            --data "{\"station_id\":1,\"station\":\"Reinickendorf\",\"groundwater_level\":${VALUE},\"unit\":\"m u. NHN\",\"measured_at\":\"${MEASURED_AT}\"}" \
+            --data "[{\"ts\":${TS},\"values\":{\"station_id\":1,\"station\":\"Reinickendorf\",\"groundwater_level\":${VALUE},\"unit\":\"m u. NHN\",\"measured_at\":\"${MEASURED_AT}\"}}]" \
             "${URL}/api/v1/${TOKEN}/telemetry" \
             -w "\nThingsBoard HTTP status: %{http_code}\n"
 
