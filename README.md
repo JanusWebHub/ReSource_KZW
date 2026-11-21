@@ -16,10 +16,11 @@ Die genaue Struktur der Daten muss beim Abruf geprüft werden. Mögliche Formate
 
 Das Projekt soll in der Regel so funktionieren:
 
-1. GitHub Action ruft jeden Tag die Messstelle ab.
-2. Der Workflow verarbeitet die Daten und extrahiert den aktuellen Grundwasserwert.
-3. Der Wert wird als Telemetrie an ThingsBoard gesendet.
-4. In ThingsBoard wird ein Dashboard mit Zeitreihe für die Messstelle erstellt.
+1. Beim ersten Lauf ruft die GitHub Action die Messreihe ab dem 01.11.1953 ab und sendet alle gültigen Messwerte mit ihrem Messzeitpunkt an ThingsBoard.
+2. Der zuletzt erfolgreich gesendete Zeitstempel wird in `groundwater-sync-state.json` gespeichert. Gleichzeitig pflegt der Workflow `groundwater-data.json` mit der vollständigen Messreihe für die HTML-Ansicht.
+3. Bei täglichen Läufen wird die Quelle nur noch ab diesem Zeitstempel abgefragt; bereits übertragene Messwerte werden übersprungen.
+4. Neue Messwerte werden in ThingsBoard in kleinen Paketen gespeichert. Der Fortschrittsstand wird erst nach erfolgreichem Upload aktualisiert.
+5. In ThingsBoard wird ein Dashboard mit Zeitreihe für die Messstelle erstellt.
 
 GitHub dient hier als Code- und Workflow-Hosting. Es führt die tägliche Aktualisierung in der Cloud aus; der lokale Rechner ist dafür nicht erforderlich.
 
@@ -58,6 +59,14 @@ Typischer Ablauf:
 ## Sicherheit
 
 Zugangsdaten, insbesondere ThingsBoard-Token oder andere sensible Informationen, dürfen nicht im öffentlichen Repository gespeichert werden. Diese Informationen sollen als GitHub Actions Secrets oder lokale Umgebungsvariablen hinterlegt werden.
+
+## Synchronisierung
+
+Die GitHub Action benötigt `THINGSBOARD_URL` als Repository-Variable und `MESSSTELLE_1` als Repository-Secret. Sie benötigt außerdem Schreibrechte für den Repository-Inhalt, um den Synchronisierungsstand und die Messreihe zu aktualisieren. Änderungen an `groundwater-sync-state.json` und `groundwater-data.json` lösen keinen weiteren Push-Workflow aus.
+
+Die HTML lädt `groundwater-data.json` automatisch. Bei direktem Öffnen der lokalen HTML-Datei ruft sie die Datendatei aus dem `main`-Branch dieses öffentlichen GitHub-Repositories ab; auf einer Website wird die Datendatei vom selben Speicherort geladen. ThingsBoard-Zugangsdaten werden dabei nicht im Browser verwendet.
+
+Wenn ThingsBoard einen Lauf ablehnt, wird der Fortschrittsstand nicht weitergeschrieben. Ein erneuter Lauf kann Messpunkte mit denselben Zeitstempeln erneut senden; ThingsBoard ordnet sie weiterhin ihren tatsächlichen Messzeitpunkten zu.
 
 ## Nächste Schritte
 

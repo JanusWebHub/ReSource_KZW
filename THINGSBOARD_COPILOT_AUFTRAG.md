@@ -16,7 +16,7 @@ Bitte untersuche und richte in meiner ThingsBoard-Cloud-Instanz die Anzeige der 
 1. Finde das vorhandene ThingsBoard-Geraet fuer Messstelle 1. Falls es mehrere passende Geraete gibt, liste sie auf und frage, welches verwendet werden soll. Erstelle kein Duplikat ohne Rueckfrage.
 2. Pruefe unter dem Geraet die Bereiche **Latest telemetry** und **Time series**. Stelle fest, welche Schluessel und Zeitstempel tatsaechlich gespeichert sind und ueber welchen Zeitraum historische Telemetrie vorhanden ist.
 3. Pruefe das vorhandene Dashboard und seine Datenquellen, Zeitfenster und Widget-Typen. Aendere keine anderen Geraete oder Dashboards.
-4. Beachte: Die aktuelle GitHub-Action sendet im wiederhergestellten Stand nur den neuesten Messwert als flaches JSON. Das Feld `measured_at` wird dabei als gewoehnlicher Telemetrie-Schluessel mitgesendet; es setzt nicht den Zeitstempel des Datenpunkts. Daher kann die derzeitige Action allein keine historische Messreihe aufbauen.
+4. Die GitHub-Action liest beim ersten Lauf die verfuegbare Messreihe ab dem 01.11.1953 ein und sendet Messpunkte mit ihren Messzeitstempeln. Der letzte erfolgreich gesendete Zeitstempel wird im Repository gespeichert; taegliche Laeufe fragen nur ab diesem Stand weiter ab. Die tatsaechliche Speicherung der historischen Messpunkte in ThingsBoard muss nach dem ersten Lauf unter **Time series** geprueft werden.
 5. Ein vorheriger Versuch, die historische Messreihe als grosse Arrays von Zeitstempeln ueber den Device-HTTP-Endpunkt zu senden, endete bei ThingsBoard Cloud bereits fuer das erste Paket mit **HTTP 500**. Der CSV-Abruf funktionierte und fand etwa 12.641 Messpunkte. Bitte behaupte nicht, dass die Daten bereits importiert wurden.
 
 ## Fehlerursache pruefen
