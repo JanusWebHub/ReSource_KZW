@@ -25,6 +25,17 @@
     th { position: sticky; top: 0; background: Canvas; }
     td.value { text-align: right; font-variant-numeric: tabular-nums; }
     .source { overflow-wrap: anywhere; }
+    .analysis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: .75rem 0; }
+    .metric { background: color-mix(in srgb, Canvas 88%, #888 12%); border-radius: 10px; padding: .75rem; }
+    .metric strong { display: block; font-size: 1.45rem; margin-top: .2rem; }
+    .trend-result { border-left: 5px solid #777; }
+    .trend-rising { border-left-color: #2e8b57; }
+    .trend-falling { border-left-color: #d94b55; }
+    .trend-none { border-left-color: #777; }
+    .analysis-controls { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+    .analysis-controls label { display: grid; gap: .25rem; }
+    .mode-button[aria-pressed="true"] { background: #d94b55; color: white; border-color: #d94b55; }
+    details { margin-top: .75rem; }
   </style>
 </head>
 <body>
@@ -41,6 +52,7 @@
         <select id="series-picker"></select>
       </label>
       <button id="reload" type="button">Messwerte aktualisieren</button>
+      <button id="mann-kendall-mode" class="mode-button" type="button" aria-pressed="false">Mann-Kendall-Modus</button>
     </div>
     <p id="status" role="status" aria-live="polite">Messwerte werden geladen …</p>
   </section>
@@ -50,6 +62,35 @@
       <div id="latest-label" class="muted">Neuester Messwert im ausgewählten Zeitraum</div>
       <div class="latest"><span id="latest-value">–</span> <small id="unit"></small></div>
       <div id="latest-date" class="muted"></div>
+    </section>
+    <section id="mann-kendall-panel" class="panel trend-result" hidden>
+      <h2>Mann-Kendall-Trendanalyse</h2>
+      <div class="analysis-controls">
+        <label>Wertebasis
+          <select id="analysis-aggregation">
+            <option value="raw">Einzelmessungen</option>
+            <option value="monthly">Monatsmittel</option>
+          </select>
+        </label>
+        <label>Signifikanzniveau
+          <select id="analysis-alpha">
+            <option value="0.05">95 % (p &lt; 0,05)</option>
+            <option value="0.01">99 % (p &lt; 0,01)</option>
+          </select>
+        </label>
+        <label><input id="theil-sen-toggle" type="checkbox"> Theil-Sen-Schätzer anzeigen</label>
+      </div>
+      <div class="analysis-grid">
+        <div class="metric"><span>Trendrichtung</span><strong id="trend-direction">–</strong></div>
+        <div class="metric"><span>Kendall-τ</span><strong id="kendall-tau">–</strong></div>
+        <div class="metric"><span>p-Wert</span><strong id="mann-kendall-p">–</strong></div>
+        <div id="theil-sen-metric" class="metric" hidden><span>Theil-Sen</span><strong id="theil-sen-value">–</strong></div>
+      </div>
+      <p id="trend-summary" class="muted"></p>
+      <details>
+        <summary>Methoden- und Datenhinweise</summary>
+        <p id="trend-details"></p>
+      </details>
     </section>
     <section class="panel">
       <h2 id="chart-title">Messreihe</h2>
@@ -85,6 +126,8 @@
     let seriesList = [];
     let activeSeries = null;
     let measurements = [];
+    let mannKendallMode = false;
+    let theilSenResult = null;
 
     function formatDate(date, options = {}) {
       return date.toLocaleString('de-DE', {timeZone: 'UTC', ...options});
@@ -92,6 +135,173 @@
 
     function formatValue(value, minimumFractionDigits = 2, maximumFractionDigits = 3) {
       return value.toLocaleString('de-DE', {minimumFractionDigits, maximumFractionDigits});
+    }
+
+    function aggregateMonthly(data) {
+      const months = new Map();
+      data.forEach(item => {
+        const date = item.date;
+        const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+        if (!months.has(key)) months.set(key, {sum: 0, count: 0, date: new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))});
+        const month = months.get(key);
+        month.sum += item.value;
+        month.count += 1;
+      });
+      return [...months.values()]
+        .map(month => ({date: month.date, value: month.sum / month.count}))
+        .sort((a, b) => a.date - b.date);
+    }
+
+    function mannKendall(data) {
+      if (data.length < 2) return null;
+      const sortedValues = [...new Set(data.map(item => item.value))].sort((a, b) => a - b);
+      const rank = new Map(sortedValues.map((value, index) => [value, index + 1]));
+      const fenwick = new Array(sortedValues.length + 1).fill(0);
+
+      function add(index, amount = 1) {
+        for (let i = index; i < fenwick.length; i += i & -i) fenwick[i] += amount;
+      }
+
+      function sum(index) {
+        let total = 0;
+        for (let i = index; i > 0; i -= i & -i) total += fenwick[i];
+        return total;
+      }
+
+      let s = 0;
+      let seen = 0;
+      const equalCounts = new Map();
+      for (const item of data) {
+        const r = rank.get(item.value);
+        const lower = r > 1 ? sum(r - 1) : 0;
+        const equal = equalCounts.get(item.value) || 0;
+        const greater = seen - lower - equal;
+        s += greater - lower;
+        add(r);
+        equalCounts.set(item.value, equal + 1);
+        seen += 1;
+      }
+
+      const n = data.length;
+      let tiedValueVariance = 0;
+      equalCounts.forEach(count => {
+        if (count > 1) tiedValueVariance += count * (count - 1) * (2 * count + 5);
+      });
+      const variance = n * (n - 1) * (2 * n + 5) / 18 - tiedValueVariance / 18;
+      let z = 0;
+      if (s > 0) z = (s - 1) / Math.sqrt(variance);
+      if (s < 0) z = (s + 1) / Math.sqrt(variance);
+
+      const p = 2 * (1 - 0.5 * (1 + erf(z / Math.sqrt(2))));
+      const denominatorBase = n * (n - 1) / 2;
+      let tiedPairs = 0;
+      equalCounts.forEach(count => {
+        if (count > 1) tiedPairs += count * (count - 1) / 2;
+      });
+      const tauDenominator = Math.sqrt((denominatorBase - tiedPairs) * denominatorBase);
+      const tau = tauDenominator ? s / tauDenominator : 0;
+
+      return {s, variance, z, p: Math.max(0, Math.min(1, p)), tau};
+    }
+
+    function erf(x) {
+      const sign = x < 0 ? -1 : 1;
+      x = Math.abs(x);
+      const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+      const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+      const t = 1 / (1 + p * x);
+      const y = 1 - (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t) * Math.exp(-x * x);
+      return sign * y;
+    }
+
+    function theilSen(data) {
+      if (data.length < 2) return null;
+      let sample = data;
+      if (data.length > 2500) {
+        sample = [];
+        for (let i = 0; i < 2500; i++) {
+          const index = Math.round(i * (data.length - 1) / 2499);
+          sample.push(data[index]);
+        }
+      }
+      const slopes = [];
+      const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+      for (let i = 0; i < sample.length - 1; i++) {
+        for (let j = i + 1; j < sample.length; j++) {
+          const timeDifference = sample[j].date.getTime() - sample[i].date.getTime();
+          if (timeDifference !== 0) {
+            slopes.push((sample[j].value - sample[i].value) * msPerYear / timeDifference);
+          }
+        }
+      }
+      if (!slopes.length) return null;
+      slopes.sort((a, b) => a - b);
+      const middle = Math.floor(slopes.length / 2);
+      const slopePerYear = slopes.length % 2 ? slopes[middle] : (slopes[middle - 1] + slopes[middle]) / 2;
+      const slopePerMs = slopePerYear / msPerYear;
+      const intercepts = sample.map(item => item.value - slopePerMs * item.date.getTime()).sort((a, b) => a - b);
+      const middleIntercept = Math.floor(intercepts.length / 2);
+      const intercept = intercepts.length % 2
+        ? intercepts[middleIntercept]
+        : (intercepts[middleIntercept - 1] + intercepts[middleIntercept]) / 2;
+      return {slopePerYear, slopePerMs, intercept, sampled: sample.length !== data.length};
+    }
+
+    function renderMannKendall(data) {
+      if (!mannKendallMode) return;
+      const aggregation = document.querySelector('#analysis-aggregation').value;
+      const analysisData = aggregation === 'monthly' ? aggregateMonthly(data) : data;
+      const result = mannKendall(analysisData);
+      if (!result) {
+        document.querySelector('#trend-direction').textContent = 'Nicht bestimmbar';
+        document.querySelector('#kendall-tau').textContent = '–';
+        document.querySelector('#mann-kendall-p').textContent = '–';
+        document.querySelector('#trend-summary').textContent = 'Für den Trendtest werden mindestens zwei Messwerte benötigt.';
+        theilSenResult = null;
+        return;
+      }
+      const alpha = Number(document.querySelector('#analysis-alpha').value);
+      const significant = result.p < alpha;
+      let direction = 'kein signifikanter Trend';
+      let directionShort = 'Kein Trend';
+      let resultClass = 'trend-none';
+      if (significant && result.tau > 0) {
+        direction = 'steigender Trend';
+        directionShort = 'Steigend';
+        resultClass = 'trend-rising';
+      } else if (significant && result.tau < 0) {
+        direction = 'sinkender Trend';
+        directionShort = 'Sinkend';
+        resultClass = 'trend-falling';
+      }
+
+      const panel = document.querySelector('#mann-kendall-panel');
+      panel.className = `panel trend-result ${resultClass}`;
+      document.querySelector('#trend-direction').textContent = directionShort;
+      document.querySelector('#kendall-tau').textContent = result.tau.toFixed(3).replace('-', '−');
+      document.querySelector('#mann-kendall-p').textContent = result.p < 0.001 ? '< 0,001' : result.p.toFixed(3).replace('.', ',');
+      const trendSummary = significant
+        ? `Statistisch signifikanter ${direction}.`
+        : 'Kein statistisch signifikanter Trend feststellbar.';
+      document.querySelector('#trend-summary').textContent =
+        `${trendSummary} Zeitraum: ${formatDate(analysisData[0].date, {dateStyle: 'medium'})} bis ${formatDate(analysisData.at(-1).date, {dateStyle: 'medium'})}.`;
+
+      const showTheilSen = document.querySelector('#theil-sen-toggle').checked;
+      theilSenResult = showTheilSen ? theilSen(analysisData) : null;
+      const theilMetric = document.querySelector('#theil-sen-metric');
+      theilMetric.hidden = !theilSenResult;
+      if (theilSenResult) {
+        const slope = theilSenResult.slopePerYear;
+        document.querySelector('#theil-sen-value').textContent =
+          `${slope > 0 ? '+' : slope < 0 ? '−' : ''}${Math.abs(slope).toFixed(4).replace('.', ',')} m/Jahr`;
+      }
+
+      document.querySelector('#trend-details').innerHTML =
+        `<strong>Datenbasis:</strong> ${analysisData.length.toLocaleString('de-DE')} ${aggregation === 'monthly' ? 'Monatsmittel' : 'Einzelmessungen'} aus ${data.length.toLocaleString('de-DE')} ausgewählten Messwerten.<br>` +
+        `<strong>Mann-Kendall-S:</strong> ${result.s.toLocaleString('de-DE')} · <strong>Kendall-τ:</strong> ${result.tau.toFixed(3).replace('.', ',')} · <strong>Z:</strong> ${result.z.toFixed(3).replace('.', ',')} · <strong>p:</strong> ${result.p.toFixed(6).replace('.', ',')}<br>` +
+        `<strong>Signifikanzniveau:</strong> ${(1 - alpha) * 100}% (p &lt; ${alpha.toFixed(2).replace('.', ',')}). ` +
+        'Der normale Mann-Kendall-Test berücksichtigt keine saisonale Korrektur. Bei regelmäßigen Monatsdaten werden zusätzlich Monatsmittel empfohlen.' +
+        (theilSenResult?.sampled ? ' Der Theil-Sen-Schätzer verwendet zur Rechenzeitbegrenzung 2.500 gleichmäßig verteilte Messpunkte.' : '');
     }
 
     function renderSelectedRange() {
@@ -125,6 +335,7 @@
         row.append(dateCell, valueCell);
         return row;
       }));
+      renderMannKendall(visible);
       drawChart(visible);
     }
 
@@ -226,6 +437,19 @@
         points: data.map(item => `${x(item.date)},${y(item.value)}`).join(' '),
         fill: 'none', stroke: '#d94b55', 'stroke-width': '3', 'stroke-linejoin': 'round', 'stroke-linecap': 'round'
       });
+      if (mannKendallMode && theilSenResult) {
+        const startValue = theilSenResult.slopePerMs * data[0].date.getTime() + theilSenResult.intercept;
+        const endValue = theilSenResult.slopePerMs * data.at(-1).date.getTime() + theilSenResult.intercept;
+        add('line', {
+          x1: x(data[0].date),
+          y1: y(startValue),
+          x2: x(data.at(-1).date),
+          y2: y(endValue),
+          stroke: '#2e8b57',
+          'stroke-width': '2',
+          'stroke-dasharray': '8 5'
+        });
+      }
       data.forEach((item, index) => {
         if (data.length <= 100) add('circle', {cx: x(item.date), cy: y(item.value), r: '2', fill: '#d94b55'});
         if (index === 0 || index === data.length - 1) {
@@ -238,6 +462,15 @@
     startSlider.addEventListener('input', renderSelectedRange);
     endSlider.addEventListener('input', renderSelectedRange);
     reloadButton.addEventListener('click', loadMeasurements);
+    document.querySelector('#mann-kendall-mode').addEventListener('click', event => {
+      mannKendallMode = !mannKendallMode;
+      event.currentTarget.setAttribute('aria-pressed', String(mannKendallMode));
+      document.querySelector('#mann-kendall-panel').hidden = !mannKendallMode;
+      if (measurements.length) renderSelectedRange();
+    });
+    document.querySelector('#analysis-aggregation').addEventListener('change', renderSelectedRange);
+    document.querySelector('#analysis-alpha').addEventListener('change', renderSelectedRange);
+    document.querySelector('#theil-sen-toggle').addEventListener('change', renderSelectedRange);
     window.addEventListener('resize', () => { if (measurements.length) renderSelectedRange(); });
     loadMeasurements();
     window.setInterval(loadMeasurements, 24 * 60 * 60 * 1000);
