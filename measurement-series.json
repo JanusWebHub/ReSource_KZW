@@ -1,0 +1,21 @@
+[
+  {
+    "id": "station-1-groundwater-level",
+    "station_id": 1,
+    "station_name": "Reinickendorf",
+    "topic": "gws",
+    "export_topic": "gw",
+    "series": "ew",
+    "substance_id": 0,
+    "substance_id_2": 0,
+    "telemetry_key": "groundwater_level",
+    "parameter_name": "Grundwasserstand",
+    "unit": "m ü. NHN",
+    "value_column": 1,
+    "minimum_value": -100,
+    "maximum_value": 1000,
+    "maximum_fraction_digits": 3,
+    "start_date": "01.11.1953",
+    "token_env": "THINGSBOARD_TOKEN"
+  }
+]
