@@ -36,6 +36,8 @@
     .analysis-controls label { display: grid; gap: .25rem; }
     .mode-button[aria-pressed="true"] { background: #d94b55; color: white; border-color: #d94b55; }
     details { margin-top: .75rem; }
+    #trend-chart { width: 100%; height: 220px; display: block; overflow: visible; }
+    #tau-gauge { width: 100%; height: 48px; display: block; }
   </style>
 </head>
 <body>
@@ -87,6 +89,8 @@
         <div id="theil-sen-metric" class="metric" hidden><span>Theil-Sen</span><strong id="theil-sen-value">–</strong></div>
       </div>
       <p id="trend-summary" class="muted"></p>
+      <svg id="trend-chart" role="img" aria-label="Messwerte und Theil-Sen-Trendlinie"></svg>
+      <svg id="tau-gauge" role="img" aria-label="Kendall-Tau-Signifikanzanzeige"></svg>
       <details>
         <summary>Methoden- und Datenhinweise</summary>
         <p id="trend-details"></p>
@@ -247,6 +251,106 @@
       return {slopePerYear, slopePerMs, intercept, sampled: sample.length !== data.length};
     }
 
+    function drawTauGauge(tau, significant, resultClass) {
+      const svg = document.querySelector('#tau-gauge');
+      const width = Math.max(320, svg.clientWidth || 500);
+      const height = 48;
+      const ns = 'http://www.w3.org/2000/svg';
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.replaceChildren();
+      const add = (tag, attrs, text) => {
+        const element = document.createElementNS(ns, tag);
+        for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+        if (text) element.textContent = text;
+        svg.append(element);
+        return element;
+      };
+      const left = 35;
+      const right = width - 35;
+      const y = 20;
+      const center = (left + right) / 2;
+      add('line', {x1: left, y1: y, x2: right, y2: y, stroke: 'currentColor', 'stroke-opacity': '.3', 'stroke-width': '8', 'stroke-linecap': 'round'});
+      add('line', {x1: center, y1: y - 10, x2: center, y2: y + 10, stroke: 'currentColor', 'stroke-opacity': '.5'});
+      const x = left + ((tau + 1) / 2) * (right - left);
+      const markerColor = !significant ? '#777' : tau < 0 ? '#d94b55' : '#2e8b57';
+      add('circle', {cx: x, cy: y, r: '8', fill: markerColor, stroke: 'Canvas', 'stroke-width': '2'});
+      add('text', {x: left, y: 44, 'text-anchor': 'middle', fill: 'currentColor', 'font-size': '11'}, '−1');
+      add('text', {x: center, y: 44, 'text-anchor': 'middle', fill: 'currentColor', 'font-size': '11'}, '0');
+      add('text', {x: right, y: 44, 'text-anchor': 'middle', fill: 'currentColor', 'font-size': '11'}, '+1');
+    }
+
+    function drawTrendChart(data) {
+      const svg = document.querySelector('#trend-chart');
+      const width = Math.max(320, svg.clientWidth || 800);
+      const height = 220;
+      const pad = {l: 64, r: 18, t: 18, b: 42};
+      const ns = 'http://www.w3.org/2000/svg';
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.replaceChildren();
+      if (data.length < 1) return;
+      let min = data[0].value;
+      let max = data[0].value;
+      data.forEach(item => {
+        min = Math.min(min, item.value);
+        max = Math.max(max, item.value);
+      });
+      if (theilSenResult) {
+        const firstValue = theilSenResult.slopePerMs * data[0].date.getTime() + theilSenResult.intercept;
+        const lastValue = theilSenResult.slopePerMs * data.at(-1).date.getTime() + theilSenResult.intercept;
+        min = Math.min(min, firstValue, lastValue);
+        max = Math.max(max, firstValue, lastValue);
+      }
+      if (min === max) {
+        min -= 1;
+        max += 1;
+      }
+      const firstTime = data[0].date.getTime();
+      const lastTime = data.at(-1).date.getTime();
+      const x = date => pad.l + (date.getTime() - firstTime) * (width - pad.l - pad.r) / Math.max(1, lastTime - firstTime);
+      const y = value => pad.t + (max - value) * (height - pad.t - pad.b) / (max - min);
+      const add = (tag, attrs, text) => {
+        const element = document.createElementNS(ns, tag);
+        for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+        if (text) element.textContent = text;
+        svg.append(element);
+        return element;
+      };
+      for (let i = 0; i < 4; i++) {
+        const value = max - i * (max - min) / 3;
+        const yy = y(value);
+        add('line', {x1: pad.l, y1: yy, x2: width - pad.r, y2: yy, stroke: 'currentColor', 'stroke-opacity': '.18'});
+        add('text', {x: pad.l - 8, y: yy + 4, 'text-anchor': 'end', fill: 'currentColor', 'font-size': '11'}, formatValue(value, 0, activeSeries.maximum_fraction_digits ?? 2));
+      }
+      add('polyline', {
+        points: data.map(item => `${x(item.date)},${y(item.value)}`).join(' '),
+        fill: 'none',
+        stroke: '#d94b55',
+        'stroke-width': '2.5',
+        'stroke-linejoin': 'round',
+        'stroke-linecap': 'round'
+      });
+      data.forEach((item, index) => {
+        if (data.length <= 100 || index % Math.ceil(data.length / 100) === 0) {
+          add('circle', {cx: x(item.date), cy: y(item.value), r: '2', fill: '#d94b55'});
+        }
+      });
+      if (theilSenResult) {
+        const startValue = theilSenResult.slopePerMs * data[0].date.getTime() + theilSenResult.intercept;
+        const endValue = theilSenResult.slopePerMs * data.at(-1).date.getTime() + theilSenResult.intercept;
+        add('line', {
+          x1: x(data[0].date),
+          y1: y(startValue),
+          x2: x(data.at(-1).date),
+          y2: y(endValue),
+          stroke: '#2e8b57',
+          'stroke-width': '3',
+          'stroke-dasharray': '8 5'
+        });
+      }
+      add('text', {x: pad.l, y: height - 12, 'text-anchor': 'start', fill: 'currentColor', 'font-size': '11'}, formatDate(data[0].date, {dateStyle: 'short'}));
+      add('text', {x: width - pad.r, y: height - 12, 'text-anchor': 'end', fill: 'currentColor', 'font-size': '11'}, formatDate(data.at(-1).date, {dateStyle: 'short'}));
+    }
+
     function renderMannKendall(data) {
       if (!mannKendallMode) return;
       const aggregation = document.querySelector('#analysis-aggregation').value;
@@ -257,6 +361,8 @@
         document.querySelector('#kendall-tau').textContent = '–';
         document.querySelector('#mann-kendall-p').textContent = '–';
         document.querySelector('#trend-summary').textContent = 'Für den Trendtest werden mindestens zwei Messwerte benötigt.';
+        document.querySelector('#trend-chart').replaceChildren();
+        document.querySelector('#tau-gauge').replaceChildren();
         theilSenResult = null;
         return;
       }
@@ -277,6 +383,7 @@
 
       const panel = document.querySelector('#mann-kendall-panel');
       panel.className = `panel trend-result ${resultClass}`;
+      drawTauGauge(result.tau, significant, resultClass);
       document.querySelector('#trend-direction').textContent = directionShort;
       document.querySelector('#kendall-tau').textContent = result.tau.toFixed(3).replace('-', '−');
       document.querySelector('#mann-kendall-p').textContent = result.p < 0.001 ? '< 0,001' : result.p.toFixed(3).replace('.', ',');
@@ -295,6 +402,7 @@
         document.querySelector('#theil-sen-value').textContent =
           `${slope > 0 ? '+' : slope < 0 ? '−' : ''}${Math.abs(slope).toFixed(4).replace('.', ',')} m/Jahr`;
       }
+      drawTrendChart(analysisData);
 
       document.querySelector('#trend-details').innerHTML =
         `<strong>Datenbasis:</strong> ${analysisData.length.toLocaleString('de-DE')} ${aggregation === 'monthly' ? 'Monatsmittel' : 'Einzelmessungen'} aus ${data.length.toLocaleString('de-DE')} ausgewählten Messwerten.<br>` +
