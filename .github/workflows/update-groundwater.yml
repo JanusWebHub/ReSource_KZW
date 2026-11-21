@@ -21,6 +21,7 @@ concurrency:
 jobs:
   send-groundwater:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -29,43 +30,35 @@ jobs:
       - name: Test groundwater synchronization
         run: python -m unittest discover -s tests
 
-      - name: Determine source date range
-        id: range
-        run: |
-          SYNC_FROM="$(python -c 'import json; from datetime import datetime, timezone; state=json.load(open("groundwater-sync-state.json", encoding="utf-8")); ts=state.get("last_measurement_timestamp"); print(datetime.fromtimestamp(ts / 1000, timezone.utc).strftime("%d.%m.%Y") if ts else "01.11.1953")')"
-          echo "start_date=${SYNC_FROM}" >> "$GITHUB_OUTPUT"
+      - name: Fetch Waterportal data and update HTML backup
+        run: python scripts/sync_groundwater.py fetch groundwater-sync-state.json groundwater-data.json measurement-series.json
 
-      - name: Fetch groundwater CSV
-        env:
-          SYNC_FROM: ${{ steps.range.outputs.start_date }}
-        run: |
-          TODAY="$(date -u +%d.%m.%Y)"
-          curl --fail --show-error --location --retry 5 --retry-all-errors --retry-delay 5 \
-            --connect-timeout 30 --max-time 120 \
-            -A "ReSource-KZW groundwater collector" \
-            -H "Accept: text/csv,text/plain,*/*" \
-            -e "https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws" \
-            --data-urlencode "sreihe=ew" \
-            --data-urlencode "smode=c" \
-            --data-urlencode "sdatum=${SYNC_FROM}" \
-            --data-urlencode "senddatum=${TODAY}" \
-            --data-urlencode "exportthema=gw" \
-            --output groundwater.csv \
-            "https://wasserportal.berlin.de/station.php?anzeige=d&station=1&thema=gws&nstoffid=0&nstoffid2=0"
-
-      - name: Send new measurements to ThingsBoard
-        env:
-          THINGSBOARD_URL: ${{ vars.THINGSBOARD_URL }}
-          THINGSBOARD_TOKEN: ${{ secrets.MESSSTELLE_1 }}
-        run: python scripts/sync_groundwater.py groundwater.csv groundwater-sync-state.json groundwater-data.json
-
-      - name: Save sync progress
+      - name: Publish HTML backup and fetch progress
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add groundwater-sync-state.json groundwater-data.json
           if ! git diff --cached --quiet; then
-            git commit -m "Update groundwater sync cursor"
+            git commit -m "Update groundwater HTML backup"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Upload new measurements to ThingsBoard
+        continue-on-error: true
+        env:
+          THINGSBOARD_URL: ${{ vars.THINGSBOARD_URL }}
+          THINGSBOARD_TOKEN: ${{ secrets.MESSSTELLE_1 }}
+        run: python scripts/sync_groundwater.py upload groundwater-sync-state.json groundwater-data.json measurement-series.json
+
+      - name: Save ThingsBoard upload progress
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add groundwater-sync-state.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update ThingsBoard upload cursor"
             git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
