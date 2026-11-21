@@ -40,8 +40,17 @@ jobs:
           git add groundwater-sync-state.json groundwater-data.json
           if ! git diff --cached --quiet; then
             git commit -m "Update groundwater HTML backup"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            for attempt in 1 2 3; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              if git merge --no-edit -X ours "origin/${GITHUB_REF_NAME}"; then
+                if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+                  exit 0
+                fi
+              fi
+              sleep 5
+            done
+            echo "Could not publish HTML backup after 3 attempts" >&2
+            exit 1
           fi
 
       - name: Upload new measurements to ThingsBoard
@@ -59,6 +68,15 @@ jobs:
           git add groundwater-sync-state.json
           if ! git diff --cached --quiet; then
             git commit -m "Update ThingsBoard upload cursor"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            for attempt in 1 2 3; do
+              git fetch origin "${GITHUB_REF_NAME}"
+              if git merge --no-edit -X ours "origin/${GITHUB_REF_NAME}"; then
+                if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+                  exit 0
+                fi
+              fi
+              sleep 5
+            done
+            echo "Could not publish ThingsBoard upload cursor after 3 attempts" >&2
+            exit 1
           fi

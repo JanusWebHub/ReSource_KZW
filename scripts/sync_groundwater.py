@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 
 
 WATERPORTAL_URL = "https://wasserportal.berlin.de/station.php"
-BATCH_SIZE = 100
+BATCH_SIZE = 20
 REQUEST_TIMEOUT = 20
 
 
