@@ -1,98 +1,170 @@
 # ReSource_KZW
 
-## Ziel
+Dieses Projekt sammelt Grundwasserstände der Messstelle 1 in Reinickendorf
+(Berlin), speichert sie in diesem Repository und überträgt neue Messpunkte
+optional an ThingsBoard.
 
-Dieses Projekt soll die Grundwasserstände der Messstelle 1 in Reinickendorf (Berlin) regelmäßig erfassen und im ThingsBoard als Telemetrie anzeigen. Die Daten sollen täglich aktualisiert werden, ohne dass ein lokaler PC dauerhaft laufen muss.
+## Aktueller Stand
+
+- Die Messreihe wird aus dem Wasserportal Berlin abgerufen.
+- Die Daten werden in [`groundwater-data.json`](groundwater-data.json)
+  als HTML-Datensicherung gespeichert.
+- Die HTML-Anzeige in [`index.html`](index.html) kann mehrere Messreihen,
+  Zeitbereiche und eine Mann-Kendall-Trendanalyse darstellen.
+- Eine GitHub Action aktualisiert die Daten täglich.
+- Die Übertragung an ThingsBoard erfolgt paketweise und speichert den letzten
+  bestätigten Upload getrennt vom Abruf-Fortschritt.
+- Für die konfigurierte Messstelle sind Stand 21.11.2026:
+  - 12.641 Messpunkte gespeichert
+  - frühester gespeicherter Messpunkt:
+    01.11.1953
+  - neuester gespeicherter Messpunkt:
+    09.11.2026
+
+Der Abruf ist unabhängig vom ThingsBoard-Upload: Wenn die Übertragung
+fehlschlägt, bleiben die Daten und der Abruf-Fortschritt erhalten. Bereits
+bestätigte Pakete werden beim nächsten Lauf nicht erneut gesendet.
 
 ## Datenquelle
 
-Die Grundwasserstände der Messstelle 1 sind im Wasserportal Berlin veröffentlicht:
+Die Messwerte stammen aus dem Wasserportal Berlin:
 
-- Messstelle 1 – Grundwasserstand: https://wasserportal.berlin.de/station.php?anzeige=g&thema=gws&station=1
+https://wasserportal.berlin.de/station.php?anzeige=g&thema=gws&station=1
 
-Der offizielle Leitfaden **Wasserportal Berlin – Getting Started with the API (2024)** beschreibt den Abruf als HTTP-GET mit CSV-Ausgabe. Für Grundwasserstände sind diese Parameter relevant:
+Der Abruf erfolgt als HTTP-GET mit CSV-Ausgabe. Die relevanten Parameter sind
+in [`measurement-series.json`](measurement-series.json) hinterlegt:
 
-| Parameter | Wert/Bedeutung |
+| Parameter | Wert |
 | --- | --- |
-| `anzeige=d` | Daten herunterladen |
-| `station=1` | Messstelle 1 |
-| `thema=gws` | Grundwasserstand |
-| `sreihe=ew` | Einzelwerte |
-| `smode=c` | CSV-Ausgabe |
-| `exportthema=gw` | Grundwasser |
-| `sdatum`, `senddatum` | Beginn und Ende des gewünschten Zeitraums (`TT.MM.JJJJ`) |
+| `anzeige` | `d` – Daten herunterladen |
+| `station` | `1` – Messstelle Reinickendorf |
+| `thema` | `gws` – Grundwasserstand |
+| `sreihe` | `ew` – Einzelwerte |
+| `smode` | `c` – CSV-Ausgabe |
+| `exportthema` | `gw` – Grundwasser |
+| `nstoffid` | Stoff-ID der Messreihe |
+| `nstoffid2` | zusätzliche Stoff-ID |
+| `sdatum`, `senddatum` | Beginn und Ende in `TT.MM.JJJJ` |
 
-Die Messreihen-Konfiguration liegt in [`measurement-series.json`](measurement-series.json). Das Python-Skript baut daraus pro Reihe einen GET-Aufruf gemäß Leitfaden. Das PDF wird hier nicht kopiert; der offizielle Leitfaden ist unter [Wasserportal Berlin – Getting Started with the API (PDF)](https://wasserportal01.stadt-berlin.de/download/wasserportal_berlin_getting_data.pdf) erreichbar (abgerufen am 21.11.2026).
+Der offizielle Leitfaden ist lokal als
+[`wasserportal_berlin_getting_data.pdf`](wasserportal_berlin_getting_data.pdf)
+vorhanden.
 
-## Architektur
+## Messreihen
 
-Das Projekt soll in der Regel so funktionieren:
+Die Konfiguration wird in [`measurement-series.json`](measurement-series.json)
+geführt. Aktuell enthält sie die Messreihe
+`station-1-groundwater-level`:
 
-1. Beim ersten Lauf ruft die GitHub Action jede konfigurierte Messreihe ab ihrem Startdatum ab.
-2. Der Workflow aktualisiert zuerst `groundwater-data.json` und veröffentlicht damit die HTML-Datensicherung unabhängig von ThingsBoard.
-3. Danach sendet er noch nicht übertragene Messpunkte mit ihren Messzeitstempeln in begrenzten Paketen an ThingsBoard.
-4. Abruf- und Upload-Fortschritt werden getrennt in `groundwater-sync-state.json` gespeichert. Scheitert ThingsBoard, bleiben die HTML-Daten verfügbar und der nicht bestätigte Upload wird später erneut versucht.
-5. In ThingsBoard wird ein Dashboard mit Zeitreihe für die Messstelle erstellt.
-
-GitHub dient hier als Code- und Workflow-Hosting. Es führt die tägliche Aktualisierung in der Cloud aus; der lokale Rechner ist dafür nicht erforderlich.
-
-## Geplante Komponenten
-
-- GitHub Repository zur Verwaltung des Codes
-- GitHub Actions Workflow für den täglichen Lauf
-- ThingsBoard-Gerät für Messstelle 1 (Reinickendorf)
-- ThingsBoard-Dashboard zur Darstellung des Grundwasserstands
-- Optional: Skript oder Parser für CSV/HTML/API-Auswertung
-
-## Geplante Messwertfelder
-
-| Feld | Beschreibung |
+| Feld | Wert |
 | --- | --- |
-| `timestamp` | Zeitstempel der Messung |
-| `groundwater_level` | Messwert des Grundwasserstands |
-| `station_id` | Kennung der Messstelle, hier 1 |
-| `station_name` | Name bzw. Lage der Messstelle, Reinickendorf |
-| `unit` | Einheit des Messwerts, falls in den Daten angegeben |
+| Station | 1, Reinickendorf |
+| Parameter | Grundwasserstand |
+| Telemetrie-Schlüssel | `groundwater_level` |
+| Einheit | `m ü. NHN` |
+| Startdatum | 01.11.1953 |
+| Spalte in der CSV | 1 |
+| Plausibilitätsbereich | -100 bis 1000 |
 
-Die genaue Bezeichnung und Einheit der Messwerte muss nach Prüfung der Datenquelle festgelegt werden.
+Weitere Messstellen oder Parameter können als eigener Eintrag mit einer
+eigenen ThingsBoard-Secret-Umgebung ergänzt werden.
 
-## ThingsBoard-Setup (Plan)
+## Dateien
 
-In ThingsBoard soll für die Messstelle ein eigenes Gerät angelegt werden. Danach wird ein Access Token oder ein passender Zugangsschlüssel verwendet, damit der GitHub-Workflow Werte als Telemetrie senden kann.
+| Datei | Zweck |
+| --- | --- |
+| [`scripts/sync_groundwater.py`](scripts/sync_groundwater.py) | Abruf, CSV-Auswertung, Datensicherung und ThingsBoard-Upload |
+| [`measurement-series.json`](measurement-series.json) | Konfiguration der Messreihen |
+| [`groundwater-data.json`](groundwater-data.json) | Gespeicherte Messwerte für die HTML-Anzeige |
+| [`groundwater-sync-state.json`](groundwater-sync-state.json) | Abruf- und Upload-Fortschritt je Messreihe |
+| [`index.html`](index.html) | Browseransicht mit Diagramm, Tabelle und Trendanalyse |
+| [`tests/test_sync_groundwater.py`](tests/test_sync_groundwater.py) | Unit-Tests für CSV, HTTP-Aufruf und Upload-Payload |
+| [`.github/workflows/update-groundwater.yml`](.github/workflows/update-groundwater.yml) | Täglicher GitHub-Action-Workflow |
 
-Typischer Ablauf:
+## HTML-Anzeige
 
-1. Gerät in ThingsBoard anlegen
-2. Device Access Token erzeugen
-3. Token als GitHub Actions Secret speichern
-4. Workflow sendet Messwerte als Telemetrie an das Gerät
-5. Dashboard für Zeitreihe und Trendansicht erstellen
+Die HTML-Datei ist unter GitHub Pages oder durch direktes Öffnen nutzbar.
+Dabei lädt sie [`groundwater-data.json`](groundwater-data.json) aus dem
+veröffentlichten Repository bzw. vom gleichen Speicherort.
 
-## Sicherheit
+Die Ansicht bietet:
 
-Zugangsdaten, insbesondere ThingsBoard-Token oder andere sensible Informationen, dürfen nicht im öffentlichen Repository gespeichert werden. Diese Informationen sollen als GitHub Actions Secrets oder lokale Umgebungsvariablen hinterlegt werden.
+- Auswahl einer konfigurierten Messreihe
+- neuesten Messwert und Messdatum im gewählten Zeitraum
+- frei einstellbaren Start- und Endzeitpunkt
+- Zeitreihendiagramm
+- Tabelle mit Messdatum und Messwert
+- Mann-Kendall-Modus für Einzelmessungen, Monatsmittel oder Jahresmittel
+- optionalen Theil-Sen-Schätzer in `m/Jahr`
+- Kendall-τ auf einer Skala von -1 bis +1
 
-## Synchronisierung
+Der Mann-Kendall-Modus ist keine saisonale Mann-Kendall-Auswertung. Saisonale
+Effekte werden in einer späteren Ausbaustufe berücksichtigt.
 
-Die GitHub Action benötigt `THINGSBOARD_URL` als Repository-Variable und `MESSSTELLE_1` als Repository-Secret. Sie benötigt außerdem Schreibrechte für den Repository-Inhalt, um den Synchronisierungsstand und die Messreihe zu aktualisieren. Änderungen an `groundwater-sync-state.json` und `groundwater-data.json` lösen keinen weiteren Push-Workflow aus. Der Job ist auf 15 Minuten begrenzt; ein abgelehnter ThingsBoard-Paket-Upload wird nicht in Tausende Einzelaufrufe aufgeteilt.
+## Automatische Synchronisierung
 
-Neue Reihen werden als weitere Einträge in `measurement-series.json` konfiguriert. `token_env` benennt die passende Umgebungsvariable; für neue ThingsBoard-Geräte muss die entsprechende GitHub-Secret-Variable zusätzlich im Workflow hinterlegt werden. Stoff-ID und Parametername müssen anhand des Leitfadens und der Daten der konkreten Messstelle verifiziert werden.
+Der Workflow [`.github/workflows/update-groundwater.yml`](.github/workflows/update-groundwater.yml)
+läuft täglich um 06:00 UTC sowie bei jedem Push auf `main` und lässt sich
+manuell starten.
 
-Die HTML lädt `groundwater-data.json` automatisch. Sie bietet eine Auswahl der konfigurierten Messreihe und zwei Schieberegler für Anfang und Ende des angezeigten Zeitraums; Diagramm, neuester Wert und Tabelle richten sich nach dem ausgewählten Zeitraum. Bei direktem Öffnen der lokalen HTML-Datei ruft sie die Datendatei aus dem `main`-Branch dieses öffentlichen GitHub-Repositories ab; auf einer Website wird die Datendatei vom selben Speicherort geladen. ThingsBoard-Zugangsdaten werden dabei nicht im Browser verwendet.
+### Ablauf
 
-Mit dem Button **Mann-Kendall-Modus** kann derselbe ausgewählte Zeitraum statistisch auf einen Trend geprüft werden. Die Ansicht zeigt Trendrichtung, Kendall-τ, p-Wert und Signifikanzniveau. Standardmäßig werden Jahresmittel verwendet, damit das Analyse-Diagramm vom Detaildiagramm der Einzelmessungen unterscheidbar bleibt. Optional können Einzelmessungen, Monatsmittel oder Jahresmittel ausgewertet und der Theil-Sen-Schätzer als Trendsteigung in `m/Jahr` eingeblendet werden. Zusätzlich werden die ausgewählten Daten in einem Analyse-Diagramm mit optionaler Theil-Sen-Trendlinie sowie Kendall-τ auf einer Skala von `-1` bis `+1` dargestellt. Der Mann-Kendall-Modus ist keine saisonale Mann-Kendall-Auswertung; saisonale Schwankungen werden erst in einer späteren Ausbaustufe korrigiert.
+1. Unit-Tests werden ausgeführt.
+2. Neue Daten werden ab dem gespeicherten Abrufdatum abgerufen.
+3. `groundwater-data.json` und der Abruf-Fortschritt werden veröffentlicht.
+4. Noch nicht bestätigte Messpunkte werden in Paketen mit höchstens 20
+   Messpunkten an ThingsBoard gesendet.
+5. Der Upload-Fortschritt wird nach jedem bestätigten Paket gespeichert.
 
-Wenn ThingsBoard einen Lauf ablehnt, bleibt der Abruf-Fortschritt erhalten, während der Upload-Fortschritt nur bis zum letzten bestätigten Paket reicht. Ein erneuter Lauf versucht den noch offenen Upload erneut; bereits bestätigte Pakete werden übersprungen.
+Die Workflow-Ausführung ist auf 15 Minuten begrenzt. Bei einem
+ThingsBoard-Fehler wird der aktuelle Abrufstatus trotzdem veröffentlicht;
+der betroffene Upload wird beim nächsten Lauf erneut versucht.
 
-## Nächste Schritte
+## ThingsBoard-Konfiguration
 
-- [ ] Datenformat und Abrufmethode der Messstelle prüfen
-- [ ] Grundwasserwert, Einheit und Zeitstempel verifizieren
-- [ ] ThingsBoard-Gerät und Device Access Token einrichten
-- [ ] GitHub Actions Workflow für täglichen Datenabruf und Upload erstellen
-- [ ] Dashboard in ThingsBoard mit Zeitreihe erstellen
-- [ ] Regelmäßige Ausführung prüfen und überwachen
+In den Repository-Einstellungen sind erforderlich:
 
-## Hinweis
+- Repository-Variable `THINGSBOARD_URL`, zum Beispiel
+  `https://eu.thingsboard.cloud`
+- Repository-Secret `MESSSTELLE_1` mit dem Device Access Token
 
-Dieses Projekt ist aktuell wie ein technischer Entwurf angelegt und wird schrittweise umgesetzt. Das Ziel ist eine automatisierte, tägliche Darstellung des Grundwasserstands in ThingsBoard ohne lokale Ausführung auf einem PC.
+Die Workflow-Ausgabe verbindet das Secret über `THINGSBOARD_TOKEN` mit der
+Messreihe aus [`measurement-series.json`](measurement-series.json). Weitere
+Geräte benötigen einen zusätzlichen Eintrag in der Messreihen-Konfiguration
+sowie das passende GitHub Secret.
+
+Zugangsdaten dürfen nicht in Dateien, Diagrammen oder der HTML-Anzeige
+gespeichert werden.
+
+## Lokal ausführen
+
+Die Tests werden ausgeführt mit:
+
+```powershell
+py -m unittest discover -s tests
+```
+
+Die Daten werden lokal aktualisiert mit:
+
+```powershell
+py scripts/sync_groundwater.py fetch groundwater-sync-state.json groundwater-data.json measurement-series.json
+```
+
+Die Übertragung an ThingsBoard benötigt Umgebungsvariablen:
+
+```powershell
+$env:THINGSBOARD_URL = "https://eu.thingsboard.cloud"
+$env:THINGSBOARD_TOKEN = "<Device-Access-Token>"
+py scripts/sync_groundwater.py upload groundwater-sync-state.json groundwater-data.json measurement-series.json
+```
+
+Lokale Ausführung ist nicht erforderlich, da der Workflow die Aktualisierung
+automatisch in GitHub Actions übernimmt.
+
+## Hinweis zur Dashboard-Einrichtung
+
+Die HTML-Anzeige dient als Datensicherung und Visualisierung. Sie erzeugt
+keine ThingsBoard-Telemetrie. Für ein ThingsBoard-Dashboard muss das richtige
+Gerät mit dem Telemetrie-Schlüssel `groundwater_level` bestätigt und
+historische Telemetrie geprüft werden. Vor einer vollständigen historischen
+Übertragung sollte ein einzelner Messpunkt getestet werden.
