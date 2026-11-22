@@ -200,7 +200,7 @@
         const lower = r > 1 ? sum(r - 1) : 0;
         const equal = equalCounts.get(item.value) || 0;
         const greater = seen - lower - equal;
-        s += greater - lower;
+        s += lower - greater;
         add(r);
         equalCounts.set(item.value, equal + 1);
         seen += 1;
@@ -216,7 +216,7 @@
       if (s > 0) z = (s - 1) / Math.sqrt(variance);
       if (s < 0) z = (s + 1) / Math.sqrt(variance);
 
-      const p = 2 * (1 - 0.5 * (1 + erf(z / Math.sqrt(2))));
+      const p = 1 - erf(Math.abs(z) / Math.sqrt(2));
       const denominatorBase = n * (n - 1) / 2;
       let tiedPairs = 0;
       equalCounts.forEach(count => {
