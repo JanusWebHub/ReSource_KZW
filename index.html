@@ -39,6 +39,11 @@
     #trend-chart { width: 100%; height: 220px; display: block; overflow: visible; }
     #tau-gauge { width: 100%; height: 48px; display: block; }
     .trend-chart-caption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .25rem .75rem; margin-top: .5rem; }
+    .map-panel { overflow: hidden; }
+    .map-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem; }
+    .map-heading h2 { margin: 0; }
+    .map-heading a { font: inherit; text-decoration: none; padding: .55rem .7rem; border: 1px solid color-mix(in srgb, CanvasText 35%, transparent); border-radius: 6px; }
+    #wasserportal-map { width: 100%; height: min(70vh, 620px); min-height: 420px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 8px; background: Canvas; }
   </style>
 </head>
 <body>
@@ -123,6 +128,24 @@
         </table>
       </div>
     </section>
+  </section>
+
+  <section class="panel map-panel">
+    <div class="map-heading">
+      <h2>Messstellenkarte Berlin</h2>
+      <a href="https://wasserportal.berlin.de/start.php?anzeige=karte&messanzeige=ms_all" target="_blank" rel="noopener">
+        Karte im Wasserportal öffnen
+      </a>
+    </div>
+    <p class="muted">Kartenansicht des Berliner Wasserportals für Grundwasser-Messstellen.</p>
+    <iframe
+      id="wasserportal-map"
+      title="Wasserportal Berlin – Karte"
+      src="https://wasserportal.berlin.de/start.php?anzeige=karte&messanzeige=ms_all"
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen
+    ></iframe>
   </section>
 
   <p class="source muted">Quelle: <a href="https://wasserportal.berlin.de/start.php" target="_blank" rel="noopener">Wasserportal Berlin</a></p>
