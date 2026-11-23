@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 WATERPORTAL_URL = "https://wasserportal.berlin.de/station.php"
 BATCH_SIZE = 5
+MAX_UPLOAD_ITEMS_PER_RUN = 500
 REQUEST_TIMEOUT = 20
 UPLOAD_RETRIES = 3
 
@@ -288,6 +289,7 @@ def main():
             if cursor["last_uploaded_timestamp"] is None
             or item["ts"] > cursor["last_uploaded_timestamp"]
         ]
+        pending = pending[:MAX_UPLOAD_ITEMS_PER_RUN]
         for offset in range(0, len(pending), BATCH_SIZE):
             batch = pending[offset : offset + BATCH_SIZE]
             try:
