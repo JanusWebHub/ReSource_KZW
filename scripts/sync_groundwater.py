@@ -4,6 +4,7 @@ import math
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -12,8 +13,9 @@ from urllib.request import Request, urlopen
 
 
 WATERPORTAL_URL = "https://wasserportal.berlin.de/station.php"
-BATCH_SIZE = 20
+BATCH_SIZE = 5
 REQUEST_TIMEOUT = 20
+UPLOAD_RETRIES = 3
 
 
 def parse_value(text, minimum=None, maximum=None):
@@ -207,16 +209,21 @@ def upload_batch(endpoint, token, batch):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            if not 200 <= response.status < 300:
-                raise RuntimeError(f"ThingsBoard returned HTTP {response.status}")
-    except HTTPError as error:
-        raise RuntimeError(f"ThingsBoard returned HTTP {error.code}") from None
-    except URLError as error:
-        raise RuntimeError(
-            f"Could not reach ThingsBoard ({type(error.reason).__name__})"
-        ) from None
+    for attempt in range(1, UPLOAD_RETRIES + 1):
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+                if not 200 <= response.status < 300:
+                    raise RuntimeError(f"ThingsBoard returned HTTP {response.status}")
+            return
+        except HTTPError as error:
+            if attempt == UPLOAD_RETRIES:
+                raise RuntimeError(f"ThingsBoard returned HTTP {error.code}") from None
+        except URLError as error:
+            if attempt == UPLOAD_RETRIES:
+                raise RuntimeError(
+                    f"Could not reach ThingsBoard ({type(error.reason).__name__})"
+                ) from None
+        time.sleep(2 * attempt)
 
 
 def save_history(data_path, series_data):
@@ -292,14 +299,33 @@ def main():
                         "items": batch,
                     },
                 )
-            except RuntimeError as error:
-                print(
-                    f"ThingsBoard upload paused for {series['id']} at "
-                    f"{cursor['last_uploaded_timestamp']}: {error}. "
-                    "HTML data is already saved; this batch will be retried.",
-                    file=sys.stderr,
-                )
-                break
+            except RuntimeError as batch_error:
+                stopped = False
+                for item in batch:
+                    try:
+                        upload_batch(
+                            endpoint,
+                            token,
+                            {
+                                **series,
+                                "items": [item],
+                            },
+                        )
+                    except RuntimeError as item_error:
+                        print(
+                            f"ThingsBoard upload paused for {series['id']} at "
+                            f"{cursor['last_uploaded_timestamp']}: {item_error}. "
+                            "HTML data is already saved; this batch will be retried.",
+                            file=sys.stderr,
+                        )
+                        stopped = True
+                        break
+                    cursor["last_uploaded_timestamp"] = item["ts"]
+                    state["series"][series["id"]] = cursor
+                    save_json(state_path, state)
+                if stopped:
+                    break
+                continue
             cursor["last_uploaded_timestamp"] = batch[-1]["ts"]
             state["series"][series["id"]] = cursor
             save_json(state_path, state)
