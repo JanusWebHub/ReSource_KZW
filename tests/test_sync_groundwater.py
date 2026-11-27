@@ -10,6 +10,7 @@ from scripts.sync_groundwater import (
     check_api_access,
     find_device,
     get_csv,
+    inspect_device_telemetry,
     parse_measurements,
     save_history,
     upload_batch,
@@ -179,7 +180,7 @@ class ParseMeasurementsTests(unittest.TestCase):
         response = Mock()
         response.__enter__ = Mock(return_value=Mock(
             status=200,
-            read=Mock(return_value=b'{"data":[{"name":"Messstelle 1 - Reinickendorf"}]}'),
+            read=Mock(return_value=b'{"data":[{"name":"Messstelle 1 (Reinickendorf)","id":{"id":"device-123"}}]}'),
         ))
         response.__exit__ = Mock(return_value=False)
         mock_urlopen.return_value = response
@@ -191,10 +192,30 @@ class ParseMeasurementsTests(unittest.TestCase):
         )
 
         request = mock_urlopen.call_args.args[0]
-        self.assertEqual(matches, ["Messstelle 1 - Reinickendorf"])
+        self.assertEqual(matches, [{"name": "Messstelle 1 (Reinickendorf)", "id": "device-123"}])
         self.assertIn("/api/tenant/devices?", request.full_url)
         self.assertIn("textSearch=Messstelle+1", request.full_url)
         self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_inspects_device_telemetry_read_only(self, mock_urlopen):
+        keys_response = Mock(status=200, read=Mock(return_value=b'["groundwater_level","station_id"]'))
+        latest_response = Mock(status=200, read=Mock(return_value=b'{"groundwater_level":[{"ts":1762646400000,"value":33.41}]}'))
+        mock_urlopen.side_effect = [
+            Mock(__enter__=Mock(return_value=keys_response), __exit__=Mock(return_value=False)),
+            Mock(__enter__=Mock(return_value=latest_response), __exit__=Mock(return_value=False)),
+        ]
+
+        inspect_device_telemetry(
+            "https://eu.thingsboard.cloud",
+            "secret-api-key",
+            {"name": "Messstelle 1 (Reinickendorf)", "id": "device-123"},
+        )
+
+        keys_request, latest_request = [call.args[0] for call in mock_urlopen.call_args_list]
+        self.assertIn("/keys/timeseries", keys_request.full_url)
+        self.assertIn("keys=groundwater_level", latest_request.full_url)
+        self.assertEqual(keys_request.headers["X-authorization"], "ApiKey secret-api-key")
 
 
 if __name__ == "__main__":

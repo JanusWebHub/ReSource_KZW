@@ -267,24 +267,59 @@ def find_device(endpoint, api_key, device_name):
                 raise RuntimeError(f"ThingsBoard device lookup returned HTTP {response.status}")
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
-        raise RuntimeError(
-            f"ThingsBoard device lookup failed with HTTP {error.code}"
-        ) from None
+        raise RuntimeError(f"ThingsBoard device lookup failed with HTTP {error.code}") from None
     except URLError as error:
-        raise RuntimeError(
-            f"Could not reach ThingsBoard device API ({type(error.reason).__name__})"
-        ) from None
+        raise RuntimeError(f"Could not reach ThingsBoard device API ({type(error.reason).__name__})") from None
 
-    matches = [
-        item["name"]
-        for item in payload.get("data", [])
-        if device_name.lower() in item.get("name", "").lower()
-    ]
+    matches = []
+    for item in payload.get("data", []):
+        name = item.get("name", "")
+        if device_name.lower() in name.lower() or "reinickendorf" in name.lower():
+            entity_id = item.get("id", {}).get("id")
+            matches.append({"name": name, "id": entity_id})
+
     print(
         f"ThingsBoard device lookup found {len(matches)} matching device(s): "
-        + (", ".join(matches) if matches else "none")
+        + (", ".join(item["name"] for item in matches) if matches else "none")
     )
     return matches
+
+
+def inspect_device_telemetry(endpoint, api_key, device):
+    device_id = device["id"]
+    headers = {"X-Authorization": f"ApiKey {api_key}"}
+
+    keys_request = Request(
+        f"{endpoint}/api/plugins/telemetry/DEVICE/{device_id}/keys/timeseries",
+        headers=headers,
+        method="GET",
+    )
+    latest_request = Request(
+        f"{endpoint}/api/plugins/telemetry/DEVICE/{device_id}/values/timeseries?keys=groundwater_level",
+        headers=headers,
+        method="GET",
+    )
+    try:
+        with urlopen(keys_request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard telemetry-key lookup returned HTTP {response.status}")
+            keys = json.loads(response.read().decode("utf-8"))
+        with urlopen(latest_request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard latest-value lookup returned HTTP {response.status}")
+            latest = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"ThingsBoard telemetry lookup failed with HTTP {error.code}") from None
+    except URLError as error:
+        raise RuntimeError(f"Could not reach ThingsBoard telemetry API ({type(error.reason).__name__})") from None
+
+    values = latest.get("groundwater_level", [])
+    print(f"Confirmed device: {device['name']} ({device_id})")
+    print(f"ThingsBoard telemetry keys: {', '.join(keys) if keys else 'none'}")
+    if values:
+        print(f"Latest groundwater_level: {values[0]['value']} at timestamp {values[0]['ts']} ms")
+    else:
+        print("Latest groundwater_level: not present")
 
 
 def save_history(data_path, series_data):
@@ -311,8 +346,17 @@ def main():
             raise RuntimeError("THINGSBOARD_URL is missing or invalid")
         api_key = os.environ.get("THINGSBOARD_API_KEY", "")
         check_api_access(endpoint, api_key)
-        find_device(endpoint, api_key, "Messstelle 1")
-        find_device(endpoint, api_key, "Reinickendorf")
+        reinickendorf_matches = find_device(endpoint, api_key, "Reinickendorf")
+        exact_matches = [
+            item for item in reinickendorf_matches
+            if item["name"].lower() == "messstelle 1 (reinickendorf)"
+        ]
+        if len(exact_matches) == 1:
+            inspect_device_telemetry(endpoint, api_key, exact_matches[0])
+        elif not exact_matches:
+            print("Could not confirm exact device Messstelle 1 (Reinickendorf).")
+        else:
+            print("Multiple exact devices named Messstelle 1 (Reinickendorf) found.")
         return
 
     state_path = Path(state_path)
