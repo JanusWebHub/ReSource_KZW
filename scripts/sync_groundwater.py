@@ -285,6 +285,38 @@ def find_device(endpoint, api_key, device_name):
     return matches
 
 
+def find_dashboards(endpoint, api_key, search_text=""):
+    parameters = urlencode({"pageSize": 100, "page": 0, "textSearch": search_text})
+    request = Request(
+        f"{endpoint}/api/tenant/dashboards?{parameters}",
+        headers={"X-Authorization": f"ApiKey {api_key}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard dashboard lookup returned HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"ThingsBoard dashboard lookup failed with HTTP {error.code}") from None
+    except URLError as error:
+        raise RuntimeError(f"Could not reach ThingsBoard dashboard API ({type(error.reason).__name__})") from None
+
+    matches = [
+        {"title": item.get("title", ""), "id": item.get("id", {}).get("id")}
+        for item in payload.get("data", [])
+        if not search_text or search_text.lower() in item.get("title", "").lower()
+    ]
+    print(
+        "ThingsBoard dashboard lookup found "
+        f"{len(matches)} matching dashboard(s): "
+        + (", ".join(item["title"] for item in matches) if matches else "none")
+    )
+    for item in matches:
+        print(f"Dashboard: {item['title']} ({item['id']})")
+    return matches
+
+
 def inspect_device_telemetry(endpoint, api_key, device):
     device_id = device["id"]
     headers = {"X-Authorization": f"ApiKey {api_key}"}
@@ -357,6 +389,8 @@ def main():
             print("Could not confirm exact device Messstelle 1 (Reinickendorf).")
         else:
             print("Multiple exact devices named Messstelle 1 (Reinickendorf) found.")
+        find_dashboards(endpoint, api_key, "Messstelle 1")
+        find_dashboards(endpoint, api_key, "Reinickendorf")
         return
 
     state_path = Path(state_path)

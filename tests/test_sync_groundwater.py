@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 from scripts.sync_groundwater import (
     check_api_access,
     find_device,
+    find_dashboards,
     get_csv,
     inspect_device_telemetry,
     parse_measurements,
@@ -216,6 +217,28 @@ class ParseMeasurementsTests(unittest.TestCase):
         self.assertIn("/keys/timeseries", keys_request.full_url)
         self.assertIn("keys=groundwater_level", latest_request.full_url)
         self.assertEqual(keys_request.headers["X-authorization"], "ApiKey secret-api-key")
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_finds_matching_dashboards_read_only(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(
+            status=200,
+            read=Mock(return_value=b'{"data":[{"title":"Messstelle 1 - Reinickendorf","id":{"id":"dashboard-123"}}]}'),
+        ))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        matches = find_dashboards(
+            "https://eu.thingsboard.cloud",
+            "secret-api-key",
+            "Messstelle 1",
+        )
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(matches, [{"title": "Messstelle 1 - Reinickendorf", "id": "dashboard-123"}])
+        self.assertIn("/api/tenant/dashboards?", request.full_url)
+        self.assertIn("textSearch=Messstelle+1", request.full_url)
+        self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
 
 
 if __name__ == "__main__":
