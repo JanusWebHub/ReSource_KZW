@@ -371,6 +371,27 @@ def inspect_dashboard(endpoint, api_key, dashboard_id):
         raise RuntimeError(f"Could not reach ThingsBoard dashboard API ({type(error.reason).__name__})") from None
 
     print(f"Confirmed dashboard: {payload.get('title', 'unknown')} ({dashboard_id})")
+
+    configuration = payload.get("configuration", {})
+    widgets = configuration.get("widgets", {})
+    aliases = configuration.get("entityAliases", {})
+
+    print(f"Dashboard widgets: {len(widgets) if isinstance(widgets, dict) else 0}")
+    if aliases:
+        alias_names = []
+        for alias_id, alias in aliases.items():
+            alias_names.append(alias.get("alias", alias_id))
+            for filter_item in alias.get("filter", {}).get("entityFilters", []):
+                entity = filter_item.get("entity")
+                if isinstance(entity, dict) and entity.get("id"):
+                    alias_names.append(str(entity.get("id")))
+        print("Dashboard entity aliases: " + ", ".join(dict.fromkeys(alias_names)))
+    else:
+        print("Dashboard entity aliases: none")
+
+    serialized = json.dumps(configuration, ensure_ascii=False)
+    print("Dashboard contains groundwater_level: " + ("yes" if "groundwater_level" in serialized else "no"))
+    print("Dashboard contains expected device ID: " + ("yes" if "c1a4ed80-e1ce-11f1-abc4-373280129aee" in serialized else "no"))
     return payload
 
 

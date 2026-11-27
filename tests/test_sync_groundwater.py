@@ -243,10 +243,37 @@ class ParseMeasurementsTests(unittest.TestCase):
 
     @patch("scripts.sync_groundwater.urlopen")
     def test_inspects_known_dashboard_read_only(self, mock_urlopen):
+        payload = {
+            "title": "Grundwasser_Berlin",
+            "id": {"id": "9ba9c130-e284-11f1-a2b8-99b86090d117"},
+            "configuration": {
+                "widgets": {
+                    "w1": {
+                        "config": {
+                            "datasources": [{
+                                "type": "entity",
+                                "dataKeys": [{"name": "groundwater_level"}],
+                                "entityAliasId": "a1",
+                            }]
+                        }
+                    }
+                },
+                "entityAliases": {
+                    "a1": {
+                        "alias": "Messstelle 1",
+                        "filter": {
+                            "entityFilters": [{
+                                "entity": {"id": "c1a4ed80-e1ce-11f1-abc4-373280129aee"}
+                            }]
+                        },
+                    }
+                },
+            },
+        }
         response = Mock()
         response.__enter__ = Mock(return_value=Mock(
             status=200,
-            read=Mock(return_value=b'{"title":"Grundwasser_Berlin","id":{"id":"9ba9c130-e284-11f1-a2b8-99b86090d117"}}'),
+            read=Mock(return_value=json.dumps(payload).encode("utf-8")),
         ))
         response.__exit__ = Mock(return_value=False)
         mock_urlopen.return_value = response
