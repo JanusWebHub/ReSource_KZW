@@ -354,7 +354,7 @@ def inspect_device_telemetry(endpoint, api_key, device):
         print("Latest groundwater_level: not present")
 
 
-def inspect_dashboard(endpoint, api_key, dashboard_id):
+def inspect_dashboard(endpoint, api_key, dashboard_id, export_path=None):
     request = Request(
         f"{endpoint}/api/dashboard/{dashboard_id}",
         headers={"X-Authorization": f"ApiKey {api_key}"},
@@ -392,6 +392,9 @@ def inspect_dashboard(endpoint, api_key, dashboard_id):
     serialized = json.dumps(configuration, ensure_ascii=False)
     print("Dashboard contains groundwater_level: " + ("yes" if "groundwater_level" in serialized else "no"))
     print("Dashboard contains expected device ID: " + ("yes" if "c1a4ed80-e1ce-11f1-abc4-373280129aee" in serialized else "no"))
+    if export_path is not None:
+        save_json(Path(export_path), payload)
+        print(f"Dashboard configuration exported to {export_path}")
     return payload
 
 
@@ -432,7 +435,7 @@ def main():
             print("Multiple exact devices named Messstelle 1 (Reinickendorf) found.")
         find_dashboards(endpoint, api_key, "Messstelle 1")
         find_dashboards(endpoint, api_key, "Reinickendorf")
-        inspect_dashboard(endpoint, api_key, "9ba9c130-e284-11f1-a2b8-99b86090d117")
+        inspect_dashboard(endpoint, api_key, "9ba9c130-e284-11f1-a2b8-99b86090d117", "thingsboard/dashboard.json")
         return
 
     state_path = Path(state_path)

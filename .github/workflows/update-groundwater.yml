@@ -43,7 +43,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add groundwater-sync-state.json groundwater-data.json
+          git add groundwater-sync-state.json groundwater-data.json thingsboard/dashboard.json
           if ! git diff --cached --quiet; then
             git commit -m "Update groundwater HTML backup"
             for attempt in 1 2 3; do
