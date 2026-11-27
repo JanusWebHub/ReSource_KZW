@@ -254,6 +254,39 @@ def check_api_access(endpoint, api_key):
     print(f"ThingsBoard REST API authentication successful (authority: {authority}).")
 
 
+def find_device(endpoint, api_key, device_name):
+    parameters = urlencode({"pageSize": 100, "page": 0, "textSearch": device_name})
+    request = Request(
+        f"{endpoint}/api/tenant/devices?{parameters}",
+        headers={"X-Authorization": f"ApiKey {api_key}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard device lookup returned HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(
+            f"ThingsBoard device lookup failed with HTTP {error.code}"
+        ) from None
+    except URLError as error:
+        raise RuntimeError(
+            f"Could not reach ThingsBoard device API ({type(error.reason).__name__})"
+        ) from None
+
+    matches = [
+        item["name"]
+        for item in payload.get("data", [])
+        if device_name.lower() in item.get("name", "").lower()
+    ]
+    print(
+        f"ThingsBoard device lookup found {len(matches)} matching device(s): "
+        + (", ".join(matches) if matches else "none")
+    )
+    return matches
+
+
 def save_history(data_path, series_data):
     save_json(
         data_path,
@@ -276,7 +309,10 @@ def main():
         endpoint = os.environ.get("THINGSBOARD_URL", "").rstrip("/")
         if not endpoint.startswith(("https://", "http://")):
             raise RuntimeError("THINGSBOARD_URL is missing or invalid")
-        check_api_access(endpoint, os.environ.get("THINGSBOARD_API_KEY", ""))
+        api_key = os.environ.get("THINGSBOARD_API_KEY", "")
+        check_api_access(endpoint, api_key)
+        find_device(endpoint, api_key, "Messstelle 1")
+        find_device(endpoint, api_key, "Reinickendorf")
         return
 
     state_path = Path(state_path)

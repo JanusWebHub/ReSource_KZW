@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlparse
 
 from scripts.sync_groundwater import (
     check_api_access,
+    find_device,
     get_csv,
     parse_measurements,
     save_history,
@@ -171,6 +172,28 @@ class ParseMeasurementsTests(unittest.TestCase):
 
         request = mock_urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://eu.thingsboard.cloud/api/auth/user")
+        self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_finds_matching_device_read_only(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(
+            status=200,
+            read=Mock(return_value=b'{"data":[{"name":"Messstelle 1 - Reinickendorf"}]}'),
+        ))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        matches = find_device(
+            "https://eu.thingsboard.cloud",
+            "secret-api-key",
+            "Messstelle 1",
+        )
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(matches, ["Messstelle 1 - Reinickendorf"])
+        self.assertIn("/api/tenant/devices?", request.full_url)
+        self.assertIn("textSearch=Messstelle+1", request.full_url)
         self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
 
 
