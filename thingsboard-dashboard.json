@@ -1,0 +1,9 @@
+{
+  "dashboard_id": "9ba9c130-e284-11f1-a2b8-99b86090d117",
+  "dashboard_title": "Grundwasser_Berlin",
+  "dashboard_url": "https://eu.thingsboard.cloud/dashboards/all/9ba9c130-e284-11f1-a2b8-99b86090d117",
+  "device_id": "c1a4ed80-e1ce-11f1-abc4-373280129aee",
+  "device_name": "Messstelle 1 (Reinickendorf)",
+  "telemetry_key": "groundwater_level",
+  "unit": "m ü. NHN"
+}

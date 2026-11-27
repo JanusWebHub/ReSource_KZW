@@ -14,6 +14,7 @@
     .controls { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
     button, select { font: inherit; padding: .55rem .7rem; }
     button { cursor: pointer; }
+    .dashboard-link { font: inherit; text-decoration: none; padding: .55rem .7rem; border: 1px solid color-mix(in srgb, CanvasText 35%, transparent); border-radius: 6px; }
     .range-control { display: grid; grid-template-columns: 1fr auto; gap: .25rem .75rem; margin: 1rem 0; }
     .range-control input { grid-column: 1 / -1; width: 100%; }
     #status { margin-top: .75rem; }
@@ -61,6 +62,9 @@
       </label>
       <button id="reload" type="button">Messwerte aktualisieren</button>
       <button id="mann-kendall-mode" class="mode-button" type="button" aria-pressed="false">Mann-Kendall-Modus</button>
+      <button id="dashboard-update" type="button">Dashboard aktualisieren</button>
+      <button id="dashboard-build" type="button" hidden>Dashboard nachbauen</button>
+      <a id="dashboard-open" class="dashboard-link" href="https://eu.thingsboard.cloud/dashboards/all/9ba9c130-e284-11f1-a2b8-99b86090d117" target="_blank" rel="noopener">In ThingsBoard öffnen</a>
     </div>
     <p id="status" role="status" aria-live="polite">Messwerte werden geladen …</p>
   </section>
@@ -156,6 +160,9 @@
     const seriesPicker = document.querySelector('#series-picker');
     const startSlider = document.querySelector('#range-start');
     const endSlider = document.querySelector('#range-end');
+    const dashboardUpdateButton = document.querySelector('#dashboard-update');
+    const dashboardBuildButton = document.querySelector('#dashboard-build');
+    const dashboardOpenLink = document.querySelector('#dashboard-open');
     let seriesList = [];
     let activeSeries = null;
     let measurements = [];
@@ -533,6 +540,19 @@
       renderSelectedRange();
     }
 
+    async function loadDashboardConfig() {
+      try {
+        const response = await fetch(`thingsboard-dashboard.json?updated=${Date.now()}`, {cache: 'no-store'});
+        if (!response.ok) return;
+        const config = await response.json();
+        if (config.dashboard_url) dashboardOpenLink.href = config.dashboard_url;
+        dashboardOpenLink.hidden = !config.dashboard_id;
+        dashboardBuildButton.hidden = Boolean(config.dashboard_id);
+      } catch (_) {
+        dashboardOpenLink.hidden = false;
+      }
+    }
+
     async function loadMeasurements() {
       reloadButton.disabled = true;
       status.textContent = 'Messwerte werden geladen …';
@@ -625,6 +645,12 @@
     startSlider.addEventListener('input', renderSelectedRange);
     endSlider.addEventListener('input', renderSelectedRange);
     reloadButton.addEventListener('click', loadMeasurements);
+    dashboardUpdateButton.addEventListener('click', () => {
+      window.open('https://github.com/JanusWebHub/ReSource_KZW/actions/workflows/update-groundwater.yml', '_blank', 'noopener');
+    });
+    dashboardBuildButton.addEventListener('click', () => {
+      window.open('https://github.com/JanusWebHub/ReSource_KZW/actions/workflows/update-groundwater.yml', '_blank', 'noopener');
+    });
     document.querySelector('#mann-kendall-mode').addEventListener('click', event => {
       mannKendallMode = !mannKendallMode;
       event.currentTarget.setAttribute('aria-pressed', String(mannKendallMode));
@@ -635,6 +661,7 @@
     document.querySelector('#analysis-alpha').addEventListener('change', renderSelectedRange);
     document.querySelector('#theil-sen-toggle').addEventListener('change', renderSelectedRange);
     window.addEventListener('resize', () => { if (measurements.length) renderSelectedRange(); });
+    loadDashboardConfig();
     loadMeasurements();
     window.setInterval(loadMeasurements, 24 * 60 * 60 * 1000);
   </script>
