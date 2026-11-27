@@ -30,6 +30,12 @@ jobs:
       - name: Test groundwater synchronization
         run: python -m unittest discover -s tests
 
+      - name: Check ThingsBoard REST API access
+        env:
+          THINGSBOARD_URL: ${{ vars.THINGSBOARD_URL }}
+          THINGSBOARD_API_KEY: ${{ secrets.THINGSBOARD_API_KEY }}
+        run: python scripts/sync_groundwater.py check-api groundwater-sync-state.json groundwater-data.json measurement-series.json
+
       - name: Fetch Waterportal data and update HTML backup
         run: python scripts/sync_groundwater.py fetch groundwater-sync-state.json groundwater-data.json measurement-series.json
 

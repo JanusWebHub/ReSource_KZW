@@ -6,7 +6,13 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlparse
 
-from scripts.sync_groundwater import get_csv, parse_measurements, save_history, upload_batch
+from scripts.sync_groundwater import (
+    check_api_access,
+    get_csv,
+    parse_measurements,
+    save_history,
+    upload_batch,
+)
 
 
 class ParseMeasurementsTests(unittest.TestCase):
@@ -127,6 +133,45 @@ class ParseMeasurementsTests(unittest.TestCase):
         saved = save_json_mock.call_args.args[1]
         self.assertEqual(saved["series"], series)
         self.assertIn("updated_at", saved)
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_check_api_access_sends_api_key_header(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(status=200, read=Mock(return_value=b'{"authority":"TENANT_ADMIN"}')))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        check_api_access("https://api.example.com", "my-secret-api-key")
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIn("X-authorization", request.headers)
+        self.assertEqual(request.headers["X-authorization"], "ApiKey my-secret-api-key")
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_check_api_access_does_not_expose_api_key_in_url(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(status=200, read=Mock(return_value=b'{"authority":"TENANT_ADMIN"}')))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        check_api_access("https://api.example.com", "my-secret-api-key")
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertNotIn("my-secret-api-key", request.full_url)
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_checks_thingsboard_rest_api_without_printing_key(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(status=200, read=Mock(return_value=b'{"authority":"TENANT_ADMIN"}')))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        check_api_access("https://eu.thingsboard.cloud", "secret-api-key")
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://eu.thingsboard.cloud/api/auth/user")
+        self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
 
 
 if __name__ == "__main__":

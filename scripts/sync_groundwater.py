@@ -227,6 +227,33 @@ def upload_batch(endpoint, token, batch):
         time.sleep(2 * attempt)
 
 
+def check_api_access(endpoint, api_key):
+    if not api_key:
+        raise RuntimeError("THINGSBOARD_API_KEY is missing")
+
+    request = Request(
+        f"{endpoint}/api/auth/user",
+        headers={"X-Authorization": f"ApiKey {api_key}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard REST API returned HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(
+            f"ThingsBoard REST API authentication failed with HTTP {error.code}"
+        ) from None
+    except URLError as error:
+        raise RuntimeError(
+            f"Could not reach ThingsBoard REST API ({type(error.reason).__name__})"
+        ) from None
+
+    authority = payload.get("authority", "unknown")
+    print(f"ThingsBoard REST API authentication successful (authority: {authority}).")
+
+
 def save_history(data_path, series_data):
     save_json(
         data_path,
@@ -238,12 +265,20 @@ def save_history(data_path, series_data):
 
 
 def main():
-    if len(sys.argv) != 5 or sys.argv[1] not in {"fetch", "upload"}:
+    if len(sys.argv) != 5 or sys.argv[1] not in {"fetch", "upload", "check-api"}:
         raise RuntimeError(
-            "Usage: sync_groundwater.py <fetch|upload> "
+            "Usage: sync_groundwater.py <fetch|upload|check-api> "
             "<state-path> <data-path> <series-config-path>"
         )
     mode, state_path, data_path, config_path = sys.argv[1:]
+
+    if mode == "check-api":
+        endpoint = os.environ.get("THINGSBOARD_URL", "").rstrip("/")
+        if not endpoint.startswith(("https://", "http://")):
+            raise RuntimeError("THINGSBOARD_URL is missing or invalid")
+        check_api_access(endpoint, os.environ.get("THINGSBOARD_API_KEY", ""))
+        return
+
     state_path = Path(state_path)
     data_path = Path(data_path)
     series_config = load_json(Path(config_path), [])
