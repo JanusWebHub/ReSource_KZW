@@ -354,6 +354,26 @@ def inspect_device_telemetry(endpoint, api_key, device):
         print("Latest groundwater_level: not present")
 
 
+def inspect_dashboard(endpoint, api_key, dashboard_id):
+    request = Request(
+        f"{endpoint}/api/dashboard/{dashboard_id}",
+        headers={"X-Authorization": f"ApiKey {api_key}"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 300:
+                raise RuntimeError(f"ThingsBoard dashboard lookup returned HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        raise RuntimeError(f"ThingsBoard dashboard lookup failed with HTTP {error.code}") from None
+    except URLError as error:
+        raise RuntimeError(f"Could not reach ThingsBoard dashboard API ({type(error.reason).__name__})") from None
+
+    print(f"Confirmed dashboard: {payload.get('title', 'unknown')} ({dashboard_id})")
+    return payload
+
+
 def save_history(data_path, series_data):
     save_json(
         data_path,
@@ -391,6 +411,7 @@ def main():
             print("Multiple exact devices named Messstelle 1 (Reinickendorf) found.")
         find_dashboards(endpoint, api_key, "Messstelle 1")
         find_dashboards(endpoint, api_key, "Reinickendorf")
+        inspect_dashboard(endpoint, api_key, "9ba9c130-e284-11f1-a2b8-99b86090d117")
         return
 
     state_path = Path(state_path)

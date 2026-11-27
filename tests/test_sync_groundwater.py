@@ -12,6 +12,7 @@ from scripts.sync_groundwater import (
     find_dashboards,
     get_csv,
     inspect_device_telemetry,
+    inspect_dashboard,
     parse_measurements,
     save_history,
     upload_batch,
@@ -238,6 +239,27 @@ class ParseMeasurementsTests(unittest.TestCase):
         self.assertEqual(matches, [{"title": "Messstelle 1 - Reinickendorf", "id": "dashboard-123"}])
         self.assertIn("/api/tenant/dashboards?", request.full_url)
         self.assertIn("textSearch=Messstelle+1", request.full_url)
+        self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
+
+    @patch("scripts.sync_groundwater.urlopen")
+    def test_inspects_known_dashboard_read_only(self, mock_urlopen):
+        response = Mock()
+        response.__enter__ = Mock(return_value=Mock(
+            status=200,
+            read=Mock(return_value=b'{"title":"Grundwasser_Berlin","id":{"id":"9ba9c130-e284-11f1-a2b8-99b86090d117"}}'),
+        ))
+        response.__exit__ = Mock(return_value=False)
+        mock_urlopen.return_value = response
+
+        dashboard = inspect_dashboard(
+            "https://eu.thingsboard.cloud",
+            "secret-api-key",
+            "9ba9c130-e284-11f1-a2b8-99b86090d117",
+        )
+
+        request = mock_urlopen.call_args.args[0]
+        self.assertEqual(dashboard["title"], "Grundwasser_Berlin")
+        self.assertIn("/api/dashboard/9ba9c130-e284-11f1-a2b8-99b86090d117", request.full_url)
         self.assertEqual(request.headers["X-authorization"], "ApiKey secret-api-key")
 
 
